@@ -1,0 +1,14 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    { "label": "C64: build", "type": "shell", "command": "make", "group": { "kind": "build", "isDefault": true }, "problemMatcher": [] },
+    { "label": "C64: run battleships", "type": "shell", "command": "make run", "problemMatcher": [] },
+    { "label": "C64: battleships autoplay (bots)", "type": "shell", "command": "make autoplay", "problemMatcher": [] },
+    { "label": "C64: play music (C64)", "type": "shell", "command": "make run PRG=song", "problemMatcher": [] },
+    { "label": "C64: play music (VSID)", "type": "shell", "command": "make play", "problemMatcher": [] },
+    { "label": "C64: run C example", "type": "shell", "command": "make run PRG=hello", "problemMatcher": [] },
+    { "label": "C64: run asm example", "type": "shell", "command": "make run PRG=border", "problemMatcher": [] },
+    { "label": "C64: build disk image", "type": "shell", "command": "make disk", "problemMatcher": [] },
+    { "label": "C64: clean", "type": "shell", "command": "make clean", "problemMatcher": [] }
+  ]
+}

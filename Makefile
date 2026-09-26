@@ -1,0 +1,108 @@
+# C64 build: cc65 toolchain + VICE emulator
+#   make            build every program into build/
+#   make run        build and run a program in VICE (PRG=battleships by default)
+#   make run PRG=hello
+#   make autoplay   run battleships with two bots playing (for testing)
+#   make play       play the SID tune (build/song.sid) in VSID
+#   make disk       pack all programs into build/disk.d64
+#   make clean
+
+BUILD   := build
+CL65    := cl65
+EMU     := x64sc
+C1541   := c1541
+
+C_SRCS   := $(wildcard src/c/*.c)
+ASM_SRCS := $(wildcard src/asm/*.s)
+C_PRGS   := $(patsubst src/c/%.c,$(BUILD)/%.prg,$(C_SRCS))
+ASM_PRGS := $(patsubst src/asm/%.s,$(BUILD)/%.prg,$(ASM_SRCS))
+PRGS     := $(C_PRGS) $(ASM_PRGS) $(BUILD)/song.prg
+
+OBJ     := $(BUILD)/obj
+
+CFLAGS  := -t c64 -O -Or
+AFLAGS  := -t c64
+# asm programs link with the BASIC SYS stub
+ASM_LDFLAGS := -t c64 -C c64-asm.cfg -u __EXEHDR__
+
+.PHONY: all run autoplay play disk clean
+
+PRG     ?= battleships
+# keyboard-as-joystick: keyset 1 -> port 2 (player 1), keyset 2 -> port 1 (player 2)
+VICEOPTS := -addconfig vice/keys.cfg -joydev2 2 -joydev1 3
+# Audio output: empty = macOS default device. Example: make play AUDIO="MacBook Air Speakers"
+AUDIO   ?=
+ifneq ($(AUDIO),)
+SOUNDOPTS := -sounddev coreaudio -soundarg "$(AUDIO)"
+endif
+
+all: $(PRGS) $(BUILD)/song.sid
+
+# Object files go under build/obj/, mirroring src/, so src/ stays clean.
+# .SECONDARY keeps make from deleting them as intermediates.
+.SECONDARY:
+
+$(OBJ)/c/%.o: src/c/%.c
+	@mkdir -p $(@D)
+	$(CL65) $(CFLAGS) -c -o $@ $<
+
+$(OBJ)/asm/%.o: src/asm/%.s
+	@mkdir -p $(@D)
+	ca65 $(AFLAGS) -o $@ $<
+
+$(BUILD)/%.prg: $(OBJ)/c/%.o
+	$(CL65) -t c64 -m $(BUILD)/$*.map -Ln $(BUILD)/$*.lbl -o $@ $^
+
+$(BUILD)/%.prg: $(OBJ)/asm/%.o
+	$(CL65) $(ASM_LDFLAGS) -m $(BUILD)/$*.map -Ln $(BUILD)/$*.lbl -o $@ $^
+
+# Music: src/music/player.s (driver) + song.s (data), linked two ways:
+#   song.prg  C64 program that plays the tune from a raster interrupt
+#   song.sid  PSID file for SID players (player at $$1000)
+MUSIC_DEPS := src/music/player.s src/music/song.s src/music/notes.inc src/music/freqtable.inc
+MUSIC_OBJS := $(OBJ)/music/player.o $(OBJ)/music/song.o
+
+$(OBJ)/music/%.o: src/music/%.s $(MUSIC_DEPS)
+	@mkdir -p $(@D)
+	ca65 -t c64 -I src/music -o $@ $<
+
+$(OBJ)/music/sidheader.o: src/music/sidheader.s
+	@mkdir -p $(@D)
+	ca65 -t none -o $@ $<
+
+$(BUILD)/song.prg: $(OBJ)/music/demo.o $(MUSIC_OBJS)
+	ld65 -C c64-asm.cfg -u __EXEHDR__ -m $(BUILD)/song.map -Ln $(BUILD)/song.lbl -o $@ $^ c64.lib
+
+$(BUILD)/song.sid: $(OBJ)/music/sidheader.o $(MUSIC_OBJS) src/music/sid.cfg
+	ld65 -C src/music/sid.cfg -o $@ $(filter %.o,$^)
+
+# battleships links the music player, song and sound-effect interrupt
+GAME_SOUND := $(OBJ)/music/sound.o $(MUSIC_OBJS)
+
+$(BUILD)/battleships.prg: $(OBJ)/c/battleships.o $(GAME_SOUND)
+	$(CL65) -t c64 -m $(BUILD)/battleships.map -Ln $(BUILD)/battleships.lbl -o $@ $^
+
+play: $(BUILD)/song.sid
+	vsid $(SOUNDOPTS) $< >/dev/null 2>&1 &
+
+disk: $(BUILD)/disk.d64
+
+$(BUILD)/disk.d64: $(PRGS)
+	$(C1541) -format "c64dev,01" d64 $@ $(foreach p,$(PRGS),-write $(p) $(basename $(notdir $(p)))) >/dev/null
+
+# -moncommands loads labels so VICE's monitor (Alt+H) shows your symbol names
+run: $(BUILD)/$(PRG).prg
+	$(EMU) $(VICEOPTS) $(SOUNDOPTS) -moncommands $(BUILD)/$(PRG).lbl -autostartprgmode 1 $< >/dev/null 2>&1 &
+
+$(OBJ)/c/battleships-auto.o: src/c/battleships.c
+	@mkdir -p $(@D)
+	$(CL65) $(CFLAGS) -DAUTOPLAY -c -o $@ $<
+
+$(BUILD)/battleships-auto.prg: $(OBJ)/c/battleships-auto.o $(GAME_SOUND)
+	$(CL65) -t c64 -o $@ $^
+
+autoplay: $(BUILD)/battleships-auto.prg
+	$(EMU) $(SOUNDOPTS) -autostartprgmode 1 $< >/dev/null 2>&1 &
+
+clean:
+	rm -rf $(BUILD)

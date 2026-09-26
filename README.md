@@ -1,0 +1,87 @@
+# C64 development
+
+Toolchain (installed with Homebrew):
+
+| Tool | Purpose |
+|------|---------|
+| `cl65` / `cc65` / `ca65` / `ld65` | C compiler, assembler, linker ([cc65](https://cc65.github.io/doc/)) |
+| `x64sc` | VICE cycle-exact C64 emulator |
+| `c1541` | Create and edit `.d64` disk images |
+| `petcat` | Convert BASIC listings to and from `.prg` |
+| `acme` | Alternative assembler (ACME syntax) |
+
+## Layout
+
+```
+src/c/*.c     C programs    -> build/<name>.prg
+src/asm/*.s   ca65 programs -> build/<name>.prg (with BASIC "SYS 2061" stub)
+src/music/    SID music driver + song -> build/song.prg and build/song.sid
+build/        output: .prg, .map, .lbl (VICE labels), disk.d64
+```
+
+Each source file becomes its own program. To add one, drop a new file into `src/c/` or `src/asm/` and run `make`.
+
+## Commands
+
+```sh
+make                  # build everything
+make run              # run battleships in VICE
+make run PRG=hello    # run any other program, e.g. hello or border
+make autoplay         # battleships with two bots playing (quick test)
+make run PRG=song     # play the SID tune on the C64
+make play             # play build/song.sid in VSID (VICE's SID player)
+make disk             # pack all programs into build/disk.d64
+make clean
+```
+
+## Battleships
+
+A real-time naval duel for two players, seen from above ([src/c/battleships.c](src/c/battleships.c)). Each ship survives 5 hits; the first to sink the other wins the round. Islands block ships, but shells fly over them.
+
+| | Player 1 (yellow) | Player 2 (red) |
+|---|---|---|
+| Joystick | port 2 | port 1 |
+| Keyboard in VICE (`make run`) | W A S D + Space | I J K L + Return |
+
+- Left/right turns the ship. Up runs the engines ahead; down runs them astern to brake or reverse.
+- Ships are heavy, as in Beach-Head. They take a few seconds to get up to speed and glide for a while when the engines stop. After a turn they keep drifting on their old course until the engines swing them around.
+- Holding fire and moving the joystick moves your crosshair (X). The ship keeps its course meanwhile.
+- Tapping fire (without moving) fires a shell toward the crosshair. It flies in an arc, looking bigger the higher it is, and lands after a delay that grows with distance, so aim where the enemy will be. It damages any ship within range of the landing point, including your own.
+
+The keyboard mapping lives in [vice/keys.cfg](vice/keys.cfg).
+
+"Neon Tide" plays throughout. Sound effects borrow the song's arpeggio voice (voice 2) while they play, and the bass/drums and lead continue. The interrupt driver is [src/music/sound.s](src/music/sound.s).
+
+## Music
+
+"Neon Tide" ([src/music/song.s](src/music/song.s)) is an original tune in the style of Jeroen Tel. It is in D minor at 150 BPM:
+
+- Voice 1 plays bass and drums together, with a filter "pluck" on the bass.
+- Voice 2 plays chords as fast one-frame arpeggios.
+- Voice 3 plays the lead, with delayed vibrato and pitch slides.
+
+The driver is [src/music/player.s](src/music/player.s). Its header comment documents the song data format: order lists with transpose, patterns, instruments, and a per-frame wave table used for drums and arpeggios. It builds two ways:
+
+- `build/song.sid`: a PSID file (player at $1000, init $1000, play $1003) for VSID, SIDPlay and similar players.
+- `build/song.prg`: a C64 program that plays the tune from a raster interrupt. The grey band in the top border shows how much CPU time the player uses each frame.
+
+To write your own tune, edit the patterns and order lists in `song.s`. Note names such as `D5` and `As4` (A-sharp/B-flat) come from `notes.inc`.
+
+## No sound?
+
+VICE plays through the macOS default output device. If that is a monitor or TV without speakers, you hear nothing. Either switch the output in macOS sound settings, or pick a device for VICE:
+
+```sh
+make play AUDIO="MacBook Air Speakers"      # also works with make run / make autoplay
+```
+
+## Debugging
+
+`make run` loads the `.lbl` symbol file into VICE, so in the monitor (**Alt+H** in VICE) you can use your own label names, for example `d .start` or `break .loop`.
+
+## References
+
+- cc65 C64 notes: https://cc65.github.io/doc/c64.html
+- C64 memory map: https://sta.c64.org/cbm64mem.html
+- 6502 instruction reference: https://www.masswerk.at/6502/6502_instruction_set.html
+- Codebase64 (tricks and routines): https://codebase64.org
