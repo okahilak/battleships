@@ -89,10 +89,11 @@
 #define FPS         50                  /* PAL frames per second */
 #define RELOAD      30                  /* frames between shots */
 #define MAGAZINE    3                   /* shots before a cooldown */
-#define COOLDOWN    (5 * FPS)           /* frames to reload the magazine */
+#define COOLDOWN    (5 * FPS / 2)       /* frames to reload the magazine (2.5 s) */
 #define AMMO_COL0   9                   /* HUD columns of the ammo display, */
 #define AMMO_COL1   26                  /* 5 cells each */
 #define AMMO_CELLS  5
+#define COOL_CELL   (COOLDOWN / AMMO_CELLS)  /* reload frames per bar block */
 #define SHELLS_PER  2                   /* shells in flight per player */
 #define AIM_SPEED   2                   /* crosshair pixels per frame */
 #define AIM_AHEAD   64                  /* crosshair start distance from ship */
@@ -238,7 +239,7 @@ static void put_number(unsigned char col, unsigned char n, unsigned char color)
 }
 
 /* Ammo status in the HUD: one shell icon per shot (grey when used), or
-   while reloading a bar with one block per second left. */
+   while reloading a bar that loses one block every COOL_CELL frames. */
 static void draw_ammo(unsigned char p)
 {
     ship_t *s = &ships[p];
@@ -247,7 +248,7 @@ static void draw_ammo(unsigned char p)
     unsigned char i, n;
 
     if (s->cooldown) {
-        n = (s->cooldown + FPS - 1) / FPS;      /* seconds left, rounded up */
+        n = (s->cooldown + COOL_CELL - 1) / COOL_CELL;  /* blocks left, rounded up */
         for (i = 0; i < AMMO_CELLS; ++i) {
             scr[i] = i < n ? 98 : ' ';          /* lower half block */
             col[i] = COLOR_GRAY2;
@@ -735,8 +736,8 @@ static void move_ship(unsigned char p)
         if (--s->cooldown == 0) {
             s->shots = MAGAZINE;
         }
-        if (s->cooldown % FPS == 0) {
-            draw_ammo(p);               /* each second, and when reloaded */
+        if (s->cooldown % COOL_CELL == 0) {
+            draw_ammo(p);               /* each bar block, and when reloaded */
         }
     }
     if (s->flash) --s->flash;
@@ -981,7 +982,7 @@ static void title(void)
     print_centered(15, "fire + up/down   engine setting", COLOR_WHITE);
     print_centered(16, "tap fire   shoot", COLOR_WHITE);
     print_centered(18, "shells land on your cross", COLOR_CYAN);
-    print_centered(19, "3 shots, then a 5 s reload", COLOR_CYAN);
+    print_centered(19, "3 shots, then a 2.5 s reload", COLOR_CYAN);
     print_centered(20, "five hits sinks a ship", COLOR_CYAN);
     print_centered(21, "running aground wrecks it", COLOR_CYAN);
     print_centered(23, "press fire to start", COLOR_YELLOW);
