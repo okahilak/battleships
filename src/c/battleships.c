@@ -6,9 +6,10 @@
  *
  *   joystick           move your crosshair (the ship keeps its course)
  *   fire + left/right  turn the ship (10-degree steps)
- *   fire + up          engines ahead (ships are heavy: they speed up, slow
- *                      down and change course slowly, and drift in turns)
+ *   fire + up          engines ahead (ships are heavy: speed builds up
+ *                      slowly, and nothing but the engines slows them down)
  *   fire + down        engines astern / brake
+ *   The ship always moves the way its bow points.
  *   tap fire           fire a shell; it flies in an arc and lands on the
  *                      crosshair after a delay, hitting any ship there
  *
@@ -59,9 +60,9 @@
 
 #define MAX_HP      5
 /* Ship physics. Velocity is in 1/256 pixel per frame. */
-#define MAX_SPEED   192                 /* 0.75 pixels per frame */
-#define THRUST_MASK 15                  /* engine push (head_x/y) every 16th frame */
-#define DRAG_MASK   3                   /* water drag every 4th frame, v -= v/32 */
+#define MAX_SPEED   192                 /* ahead: 0.75 pixels per frame */
+#define MAX_REVERSE 64                  /* astern */
+#define SPEED_STEP  1                   /* engine change per frame: 0 to full in ~4 s */
 #define TURN_DELAY  5                   /* frames per 10-degree heading step */
 #define RELOAD      30                  /* frames between shots */
 #define SHELLS_PER  2                   /* shells in flight per player */
@@ -72,7 +73,8 @@
 
 typedef struct {
     int x, y;                   /* centre, 1/16 pixel */
-    int vx, vy;                 /* velocity, 1/256 pixel per frame */
+    int speed;                  /* along the heading, 1/256 pixel per frame */
+    int vx, vy;                 /* resulting velocity, derived each frame */
     int rx, ry;                 /* sub-step remainder, 0..15 */
     unsigned char dir;
     unsigned char turn_wait;
@@ -417,8 +419,11 @@ static unsigned char bot(unsigned char me)
     if (diff != 0) {
         joy |= diff <= HEADINGS / 2 ? JOY_RIGHT : JOY_LEFT;
     }
-    if (ax + ay > 50 || diff != 0) {
+    /* cruise at about half speed, brake when close */
+    if (ax + ay > 60 && s->speed < 100) {
         joy |= JOY_UP;
+    } else if (ax + ay <= 60 && s->speed > 0) {
+        joy |= JOY_DOWN;
     }
     return joy ? joy | JOY_FIRE : 0;    /* steering needs fire held */
 }
@@ -547,25 +552,6 @@ static void move_aim(ship_t *s, unsigned char joy)
     if (s->aim_y > 195) s->aim_y = 195;
 }
 
-/* Water drag: v -= v/32, and at least 1 so the ship does come to rest. */
-static int drag(int v)
-{
-    int d;
-
-    if (v == 0) return 0;
-    d = iabs(v) >> 5;
-    if (d == 0) d = 1;
-    return v > 0 ? v - d : v + d;
-}
-
-/* Octagonal approximation of sqrt(x*x + y*y), within about 12%. */
-static int approx_len(int x, int y)
-{
-    x = iabs(x);
-    y = iabs(y);
-    return x > y ? x + y / 2 : y + x / 2;
-}
-
 /* Converts velocity (1/256 px) into this frame's move in position units
    (1/16 px), carrying the remainder so slow drifts still add up. */
 static int step(int *rem, int v)
@@ -619,38 +605,31 @@ static void move_ship(unsigned char p)
         s->turn_wait = 0;               /* taps turn immediately */
     }
 
-    /* engines push along the heading; the velocity only follows slowly,
-       so the ship keeps drifting on its old course while it turns */
-    if ((frame & THRUST_MASK) == 0) {
-        if (joy & JOY_UP) {
-            s->vx += head_x[s->dir];
-            s->vy += head_y[s->dir];
-        } else if (joy & JOY_DOWN) {
-            s->vx -= head_x[s->dir];
-            s->vy -= head_y[s->dir];
-        }
+    /* engines change the speed slowly; nothing else slows the ship down */
+    if (joy & JOY_UP) {
+        s->speed += SPEED_STEP;
+        if (s->speed > MAX_SPEED) s->speed = MAX_SPEED;
+    } else if (joy & JOY_DOWN) {
+        s->speed -= SPEED_STEP;
+        if (s->speed < -MAX_REVERSE) s->speed = -MAX_REVERSE;
     }
-    if ((frame & DRAG_MASK) == 0) {
-        s->vx = drag(s->vx);
-        s->vy = drag(s->vy);
-    }
-    if (approx_len(s->vx, s->vy) > MAX_SPEED) {
-        s->vx -= s->vx / 16;
-        s->vy -= s->vy / 16;
-    }
+
+    /* the ship moves the way its bow points (head_x/y are scaled by 32) */
+    s->vx = head_x[s->dir] * s->speed / 32;
+    s->vy = head_y[s->dir] * s->speed / 32;
 
     nx = s->x + step(&s->rx, s->vx);
     ny = s->y + step(&s->ry, s->vy);
     contact = ship_contact(nx, ny, s->dir);
     if (contact == CONTACT_EDGE) {
-        s->vx = s->vy = 0;
+        s->speed = 0;
     } else {
         s->x = nx;
         s->y = ny;
         if (contact == CONTACT_LAND) {
             /* ran aground: wrecked on the spot */
             s->hp = 0;
-            s->vx = s->vy = 0;
+            s->speed = 0;
             draw_hud();
         }
     }
@@ -662,8 +641,7 @@ static void hit(unsigned char p)
 
     if (s->hp) --s->hp;
     s->flash = 16;
-    s->vx /= 2;
-    s->vy /= 2;
+    s->speed /= 2;
     sfx_play(SFX_HIT);
     draw_hud();
 }
@@ -717,8 +695,8 @@ static void ships_collide(int ox0, int oy0, int ox1, int oy1)
     int dy = (ships[0].y >> 4) - (ships[1].y >> 4);
 
     if (dx > -14 && dx < 14 && dy > -14 && dy < 14) {
-        ships[0].x = ox0; ships[0].y = oy0; ships[0].vx = ships[0].vy = 0;
-        ships[1].x = ox1; ships[1].y = oy1; ships[1].vx = ships[1].vy = 0;
+        ships[0].x = ox0; ships[0].y = oy0; ships[0].speed = 0;
+        ships[1].x = ox1; ships[1].y = oy1; ships[1].speed = 0;
     }
 }
 
