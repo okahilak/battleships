@@ -18,12 +18,15 @@
  *   tap fire           fire a shell; it flies in an arc and lands on the
  *                      crosshair after a delay, hitting any ship there
  *
+ * Each map hides 1-2 icebergs: they only show up when a ship is within one
+ * tile, and ramming one costs a heart (the iceberg breaks up).
  * Each ship takes 3 hits. A ship that runs aground on an island is wrecked
  * at once. The screen edges just stop it.
  *
  * Build with -DAUTOPLAY to let two simple bots play (used for testing).
  */
 #include <c64.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "ship_sprites.h"         /* generated: ship frames and heading tables */
@@ -157,6 +160,17 @@ static const island_t islands[] = {
 static ship_t ships[2];
 static shell_t shells[2 * SHELLS_PER];  /* player p owns p*SHELLS_PER.. */
 static unsigned char wins[2];
+
+/* Icebergs: hidden until a ship comes within one tile. */
+#define ICE_CHAR    112
+#define MAX_ICE     2
+typedef struct {
+    unsigned char col, row;
+    unsigned char alive;
+    unsigned char shown;
+} iceberg_t;
+static iceberg_t icebergs[MAX_ICE];
+static unsigned char ice_count;
 static unsigned char frame;
 
 /* ------------------------------------------------------------------ */
@@ -867,6 +881,111 @@ static void hit(unsigned char p)
     draw_hud();
 }
 
+/* ------------------------------------------------------------------ */
+/* Icebergs                                                           */
+
+static unsigned char iceberg_near(iceberg_t *ice, unsigned char col, unsigned char row, unsigned char dist);
+
+static unsigned char sea_char(unsigned char col, unsigned char row)
+{
+    return (col * 7 + row * 13) % 17 == 0 ? WAVE_CHAR : ' ';
+}
+
+/* Open sea around (col,row), nothing but water or waves in the 3x3 block. */
+static unsigned char open_sea(unsigned char col, unsigned char row)
+{
+    unsigned char x, y, c;
+
+    for (y = row - 1; y <= row + 1; ++y) {
+        for (x = col - 1; x <= col + 1; ++x) {
+            c = SCREEN[y * 40 + x];
+            if (c != ' ' && c != WAVE_CHAR) return 0;
+        }
+    }
+    return 1;
+}
+
+/* 1 or 2 icebergs on open sea, away from the start positions (row 13,
+   columns 4 and 35). */
+static void place_icebergs(void)
+{
+    unsigned char i, tries, col, row;
+    iceberg_t *ice;
+
+    ice_count = 1 + (rand() & 1);
+    for (i = 0; i < ice_count; ++i) {
+        ice = &icebergs[i];
+        ice->alive = 0;
+        ice->shown = 0;
+        for (tries = 0; tries < 100; ++tries) {
+            col = 3 + rand() % 34;
+            row = 3 + rand() % 19;
+            if ((col < 10 || col > 29) && row > 9 && row < 17) continue;
+            if (!open_sea(col, row)) continue;
+            if (i && iceberg_near(&icebergs[0], col, row, 3)) continue;
+            ice->col = col;
+            ice->row = row;
+            ice->alive = 1;
+            break;
+        }
+    }
+}
+
+static unsigned char iceberg_near(iceberg_t *ice, unsigned char col, unsigned char row, unsigned char dist)
+{
+    return (unsigned char)(ice->col - col + dist) <= 2 * dist
+        && (unsigned char)(ice->row - row + dist) <= 2 * dist;
+}
+
+static void show_iceberg(iceberg_t *ice, unsigned char show)
+{
+    unsigned int o = ice->row * 40 + ice->col;
+    unsigned char c = SCREEN[o];
+
+    if (c == MARK_CHAR || c == MARK_LAND) return;  /* a landing mark is on top: later */
+    SCREEN[o] = show ? ICE_CHAR : sea_char(ice->col, ice->row);
+    COLORRAM[o] = show ? COLOR_WHITE : COLOR_LIGHTBLUE;
+    ice->shown = show;
+}
+
+/* Reveals icebergs next to a ship, hides them again when it leaves, and
+   makes a ship that touches one (centre, bow or stern) pay a heart. */
+static void update_icebergs(void)
+{
+    unsigned char i, k, nearby, cx, cy;
+    int px, py;
+    iceberg_t *ice;
+    ship_t *s;
+
+    for (i = 0; i < ice_count; ++i) {
+        ice = &icebergs[i];
+        if (!ice->alive) continue;
+        nearby = 0;
+        for (k = 0; k < 2; ++k) {
+            s = &ships[k];
+            if (!s->hp) continue;
+            px = s->x >> 4;
+            py = s->y >> 4;
+            cx = (unsigned char)(px >> 3);
+            cy = (unsigned char)(py >> 3);
+            if (iceberg_near(ice, cx, cy, 1)) nearby = 1;
+            if ((cx == ice->col && cy == ice->row)
+                || (((px + bow_x[s->dir]) >> 3) == ice->col && ((py + bow_y[s->dir]) >> 3) == ice->row)
+                || (((px - bow_x[s->dir]) >> 3) == ice->col && ((py - bow_y[s->dir]) >> 3) == ice->row)) {
+                hit(k);
+                ice->alive = 0;
+                show_iceberg(ice, 0);
+                ice->shown = 0;
+                nearby = 0;
+                break;
+            }
+        }
+        if (ice->alive && nearby != ice->shown) {
+            show_iceberg(ice, nearby);
+        }
+    }
+}
+
 /* The shell comes down at its target: hits any ship there, else splashes. */
 static void land(shell_t *b)
 {
@@ -948,6 +1067,7 @@ static void new_round(void)
     }
 
     draw_map();
+    place_icebergs();
     draw_hud();
     update_sprites();
 }
@@ -969,6 +1089,7 @@ static unsigned char play_round(void)
         move_ship(0);
         move_ship(1);
         ships_collide(ox0, oy0, ox1, oy1);
+        update_icebergs();
         move_shells();
     }
 
@@ -1013,6 +1134,7 @@ static void title(void)
     print_centered(19, "3 shots, then a 2.5 s reload", COLOR_CYAN);
     print_centered(20, "three hits sink a ship", COLOR_CYAN);
     print_centered(21, "running aground wrecks it", COLOR_CYAN);
+    print_centered(22, "beware hidden icebergs", COLOR_WHITE);
     print_centered(23, "press fire to start", COLOR_YELLOW);
 }
 
@@ -1047,6 +1169,7 @@ int main(void)
 
     title();
     wait_fire();
+    srand(((unsigned)frame << 8) | VIC.rasterline);   /* players' timing seeds the maps */
 
     for (;;) {
         w = play_round();
