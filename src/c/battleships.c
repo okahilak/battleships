@@ -505,6 +505,12 @@ static unsigned char off_sea(int px, int py)
     return px < 2 || px > 317 || py < 10 || py > 197;
 }
 
+/* Inside the screen below the HUD row, where land_at() may look. */
+static unsigned char on_screen(int px, int py)
+{
+    return px >= 0 && px < 320 && py >= 8 && py < 200;
+}
+
 /* Only for points inside the sea area (check off_sea first). */
 static unsigned char land_at(int px, int py)
 {
@@ -520,18 +526,24 @@ static unsigned char solid_at(int px, int py)
 
 enum { CONTACT_NONE, CONTACT_EDGE, CONTACT_LAND };
 
-/* What the ship's centre, bow and stern touch at position (x,y). */
+/* What the ship touches at position (x,y). Only the centre is stopped by the
+   screen edge, so bow and stern can slide under the border; all three points
+   run aground on land. */
 static unsigned char ship_contact(int x, int y, unsigned char d)
 {
     int px = x >> 4;
     int py = y >> 4;
-    int bx = bow_x[d];
-    int by = bow_y[d];
+    int bx = px + bow_x[d];
+    int by = py + bow_y[d];
+    int sx = px - bow_x[d];
+    int sy = py - bow_y[d];
 
-    if (off_sea(px, py) || off_sea(px + bx, py + by) || off_sea(px - bx, py - by)) {
+    if (off_sea(px, py)) {
         return CONTACT_EDGE;
     }
-    if (land_at(px, py) || land_at(px + bx, py + by) || land_at(px - bx, py - by)) {
+    if (land_at(px, py)
+        || (on_screen(bx, by) && land_at(bx, by))
+        || (on_screen(sx, sy) && land_at(sx, sy))) {
         return CONTACT_LAND;
     }
     return CONTACT_NONE;
