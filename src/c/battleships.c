@@ -18,6 +18,7 @@
  *   tap fire           fire a shell; it flies in an arc and lands on the
  *                      crosshair after a delay, hitting any ship there
  *
+ * Every round has a new random map with a random amount of land.
  * Each map hides 1-2 icebergs: they only show up when a ship is within one
  * tile, and ramming one costs a heart (the iceberg breaks up).
  * Each ship takes 3 hits. A ship that runs aground on an island is wrecked
@@ -147,15 +148,6 @@ typedef struct {
     unsigned char under_col;
 } shell_t;
 
-typedef struct { unsigned char c, r, w, h; } island_t;
-
-/* Left half of the map; each island is mirrored onto the right half. */
-static const island_t islands[] = {
-    {  9,  4, 2, 2 },
-    { 14, 15, 2, 2 },
-    {  6, 18, 2, 2 },
-    { 19, 11, 2, 3 },               /* centre: mirrors onto itself */
-};
 
 static ship_t ships[2];
 static shell_t shells[2 * SHELLS_PER];  /* player p owns p*SHELLS_PER.. */
@@ -198,9 +190,11 @@ static void print_centered(unsigned char row, const char *s, unsigned char color
     print((unsigned char)(20 - strlen(s) / 2), row, s, color);
 }
 
-static void draw_island(unsigned char c, unsigned char r, unsigned char w, unsigned char h)
+/* Fills a w x h block of land (corners cut on bigger blocks); returns how
+   many cells became land. */
+static unsigned char draw_island(unsigned char c, unsigned char r, unsigned char w, unsigned char h)
 {
-    unsigned char x, y;
+    unsigned char x, y, added = 0;
     unsigned int o;
 
     for (y = 0; y < h; ++y) {
@@ -210,10 +204,12 @@ static void draw_island(unsigned char c, unsigned char r, unsigned char w, unsig
                 continue;
             }
             o = (r + y) * 40 + c + x;
+            if (!IS_ISLAND(SCREEN[o])) ++added;
             SCREEN[o] = ISLAND_BASE;    /* shaped by shape_coast() */
             COLORRAM[o] = COLOR_GREEN;
         }
     }
+    return added;
 }
 
 /* Picks the coast tile for every land cell from its land neighbours
@@ -255,16 +251,27 @@ static void draw_sea(void)
     }
 }
 
+/* A new random map every round: islands of 2-4 x 2-4 cells, which may
+   merge, until a random amount of land (about 1-10% of the sea) is reached.
+   Each island is mirrored left/right so both sides are equal, and the
+   start areas (columns 0-9 / 30-39, rows 10-16) stay clear. */
+#define LAND_MIN    12
+#define LAND_RANGE  90
 static void draw_map(void)
 {
-    unsigned char i;
-    const island_t *is;
+    unsigned char tries, c, r, w, h, land, target;
 
     draw_sea();
-    for (i = 0; i < sizeof(islands) / sizeof(islands[0]); ++i) {
-        is = &islands[i];
-        draw_island(is->c, is->r, is->w, is->h);
-        draw_island(40 - is->c - is->w, is->r, is->w, is->h);
+    target = LAND_MIN + rand() % LAND_RANGE;
+    land = 0;
+    for (tries = 0; tries < 60 && land < target; ++tries) {
+        w = 2 + rand() % 3;
+        h = 2 + rand() % 3;
+        c = 1 + rand() % (20 - w);              /* left half: ends by column 19 */
+        r = 2 + rand() % (21 - h);              /* rows 2..21, clear of HUD and slider */
+        if (c < 10 && r <= 16 && r + h > 10) continue;
+        land += draw_island(c, r, w, h);
+        land += draw_island(40 - c - w, r, w, h);
     }
     shape_coast();
 }
@@ -1134,7 +1141,7 @@ static void title(void)
     print_centered(19, "3 shots, then a 2.5 s reload", COLOR_CYAN);
     print_centered(20, "three hits sink a ship", COLOR_CYAN);
     print_centered(21, "running aground wrecks it", COLOR_CYAN);
-    print_centered(22, "beware hidden icebergs", COLOR_WHITE);
+    print_centered(22, "new sea every round, beware icebergs", COLOR_WHITE);
     print_centered(23, "press fire to start", COLOR_YELLOW);
 }
 
