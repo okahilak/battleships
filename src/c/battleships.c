@@ -62,7 +62,7 @@
 /* Ship physics. Velocity is in 1/256 pixel per frame. */
 #define MAX_SPEED   192                 /* ahead: 0.75 pixels per frame */
 #define MAX_REVERSE 64                  /* astern */
-#define SPEED_STEP  1                   /* engine change per frame: 0 to full in ~4 s */
+#define SPEED_STEP  3                   /* engine change per frame: 0 to full in ~1.3 s */
 #define TURN_DELAY  5                   /* frames per 10-degree heading step */
 #define FPS         50                  /* PAL frames per second */
 #define RELOAD      30                  /* frames between shots */

@@ -45,7 +45,7 @@ A real-time naval duel for two players, seen from above ([src/c/battleships.c](s
 
 - Moving the joystick (no button) moves your crosshair (X). The ship keeps its course meanwhile.
 - Holding fire makes the joystick steer. Left/right turns the ship in 10° steps; up runs the engines ahead; down runs them astern to brake or reverse.
-- Ships are heavy, as in Beach-Head. They take about 4 seconds to reach full speed and then keep going, since nothing but the engines slows them down. A ship always moves the way its bow points.
+- Ships are heavy, as in Beach-Head. They take about 1.3 seconds to reach full speed and then keep going, since nothing but the engines slows them down. A ship always moves the way its bow points.
 - Tapping fire (without moving) fires a shell toward the crosshair. It flies in an arc, looking bigger the higher it is, and lands after a delay that grows with distance, so aim where the enemy will be. It damages any ship within range of the landing point, including your own.
 - Each ship fires 3 shots, then has to reload for 5 seconds. The top row shows it next to your hearts: shell icons (grey once used), or a bar that shrinks one block per second while reloading.
 
