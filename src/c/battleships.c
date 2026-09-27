@@ -5,13 +5,15 @@
  *   Player 2 (red, starts right):    joystick in port 1
  *
  *   joystick           move your crosshair (the ship keeps its course)
- *   fire + left/right  move the rudder one step: hard left, straight, hard
- *                      right. It stays put; the ship keeps turning (in
- *                      10-degree steps) until the rudder is moved back.
- *   fire + up/down     move the engine setting (speed setpoint) ahead or
- *                      astern; the slider on the bottom row shows it. The
- *                      ship's speed follows the setting with a delay, and
- *                      nothing but the engines slows it down.
+ *   fire + left/right  put the rudder hard left / hard right. It stays
+ *                      there; the ship keeps turning (10-degree steps).
+ *   fire + up          with the rudder over: centre it (straight ahead).
+ *                      With the rudder already straight: raise the engine
+ *                      setting (speed setpoint).
+ *   fire + down        lower the engine setting / astern.
+ *                      The slider on the bottom row shows the setting; the
+ *                      ship's speed follows it with a delay, and nothing
+ *                      but the engines slows it down.
  *   The ship always moves the way its bow points.
  *   tap fire           fire a shell; it flies in an arc and lands on the
  *                      crosshair after a delay, hitting any ship there
@@ -105,7 +107,8 @@ typedef struct {
     unsigned char dir;
     unsigned char turn_wait;
     signed char rudder;         /* -1 left, 0 straight, 1 right */
-    unsigned char prev_lr;      /* left/right bits last frame, for press edges */
+    unsigned char prev_dirs;    /* joystick directions last frame, for press edges */
+    unsigned char up_centred;   /* this up press centred the rudder: no speed change */
     unsigned char reload;
     unsigned char shots;        /* left in the magazine */
     unsigned char cooldown;     /* frames until the magazine is full again */
@@ -509,9 +512,10 @@ static unsigned char bot(unsigned char me)
     }
     diff = (want + HEADINGS - s->dir) % HEADINGS;
     rudder = diff == 0 ? 0 : diff <= HEADINGS / 2 ? 1 : -1;
-    if (!s->prev_lr) {                  /* rudder moves on presses: release between */
-        if (s->rudder < rudder) joy |= JOY_RIGHT;
-        else if (s->rudder > rudder) joy |= JOY_LEFT;
+    if (s->rudder != rudder) {
+        /* one rudder press at a time, released in between */
+        d = rudder > 0 ? JOY_RIGHT : rudder < 0 ? JOY_LEFT : JOY_UP;
+        return (s->prev_dirs & d) ? JOY_FIRE : (d | JOY_FIRE);
     }
     /* cruise at about half speed, stop when close */
     if (ax + ay > 60 && s->setpoint < 100) {
@@ -720,7 +724,7 @@ static void move_ship(unsigned char p)
 {
     ship_t *s = &ships[p];
     unsigned char joy = read_joy(p);
-    unsigned char contact, lr, pressed;
+    unsigned char contact, pressed;
     int nx, ny, d;
 
     if (s->reload) --s->reload;
@@ -755,12 +759,18 @@ static void move_ship(unsigned char p)
         joy = 0;
     }
 
-    /* each new left/right press moves the rudder one step */
-    lr = joy & (JOY_LEFT | JOY_RIGHT);
-    pressed = lr & ~s->prev_lr;
-    s->prev_lr = lr;
-    if ((pressed & JOY_RIGHT) && s->rudder < 1) ++s->rudder;
-    if ((pressed & JOY_LEFT) && s->rudder > -1) --s->rudder;
+    /* rudder: left/right presses put it over, an up press centres it */
+    pressed = joy & JOY_DIRS & ~s->prev_dirs;
+    s->prev_dirs = joy & JOY_DIRS;
+    if (pressed & JOY_RIGHT) s->rudder = 1;
+    if (pressed & JOY_LEFT) s->rudder = -1;
+    if ((pressed & JOY_UP) && s->rudder) {
+        s->rudder = 0;
+        s->up_centred = 1;              /* this press doesn't touch the speed */
+    }
+    if (!(joy & JOY_UP)) {
+        s->up_centred = 0;
+    }
 
     if (s->rudder) {
         if (s->turn_wait == 0) {
@@ -774,7 +784,7 @@ static void move_ship(unsigned char p)
     }
 
     /* fire + up/down moves the engine setting */
-    if (joy & JOY_UP) {
+    if ((joy & JOY_UP) && !s->up_centred) {
         s->setpoint += SET_STEP;
         if (s->setpoint > MAX_SPEED) s->setpoint = MAX_SPEED;
     } else if (joy & JOY_DOWN) {
@@ -965,7 +975,7 @@ static void title(void)
     print_centered(8, "player 1  joystick port 2", COLOR_YELLOW);
     print_centered(10, "player 2  joystick port 1", COLOR_LIGHTRED);
     print_centered(13, "joystick   aim", COLOR_WHITE);
-    print_centered(14, "fire + left/right   rudder", COLOR_WHITE);
+    print_centered(14, "fire + left/right/up   rudder", COLOR_WHITE);
     print_centered(15, "fire + up/down   engine setting", COLOR_WHITE);
     print_centered(16, "tap fire   shoot", COLOR_WHITE);
     print_centered(18, "shells land on your cross", COLOR_CYAN);
