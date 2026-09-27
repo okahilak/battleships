@@ -56,7 +56,8 @@
 #define SPR_SHIP(p)  (2 + (p))
 #define SPR_SHELL(i) (4 + (i))
 
-#define ISLAND_CHAR 160                 /* reverse space */
+/* Island tiles are ISLAND_BASE + neighbour mask (charset.h): coast shapes. */
+#define IS_ISLAND(c) (((c) & 0xF0) == ISLAND_BASE)
 #define WAVE_CHAR   100                 /* thin line at bottom of cell */
 #define MARK_CHAR   87                  /* ring: where a shell will land */
 #define MARK_LAND   (MARK_CHAR | 0x80)  /* the same on an island square */
@@ -195,8 +196,28 @@ static void draw_island(unsigned char c, unsigned char r, unsigned char w, unsig
                 continue;
             }
             o = (r + y) * 40 + c + x;
-            SCREEN[o] = ISLAND_CHAR;
+            SCREEN[o] = ISLAND_BASE;    /* shaped by shape_coast() */
             COLORRAM[o] = COLOR_GREEN;
+        }
+    }
+}
+
+/* Picks the coast tile for every land cell from its land neighbours
+   (N=1 E=2 S=4 W=8), so islands get rounded, irregular shorelines. */
+static void shape_coast(void)
+{
+    unsigned char x, y, m;
+    unsigned char *p = SCREEN + 40;
+
+    for (y = 1; y < 24; ++y) {
+        for (x = 0; x < 40; ++x, ++p) {
+            if (!IS_ISLAND(*p)) continue;
+            m = 0;
+            if (y > 1 && IS_ISLAND(p[-40])) m |= 1;
+            if (x < 39 && IS_ISLAND(p[1])) m |= 2;
+            if (y < 23 && IS_ISLAND(p[40])) m |= 4;
+            if (x > 0 && IS_ISLAND(p[-1])) m |= 8;
+            *p = ISLAND_BASE | m;
         }
     }
 }
@@ -231,6 +252,7 @@ static void draw_map(void)
         draw_island(is->c, is->r, is->w, is->h);
         draw_island(40 - is->c - is->w, is->r, is->w, is->h);
     }
+    shape_coast();
 }
 
 static void put_number(unsigned char col, unsigned char n, unsigned char color)
@@ -577,11 +599,14 @@ static unsigned char on_screen(int px, int py)
 }
 
 /* Only for points inside the sea area (check off_sea first). */
+/* Pixel-precise: water in the rounded coast tiles doesn't count as land. */
 static unsigned char land_at(int px, int py)
 {
     unsigned char c = SCREEN[(py >> 3) * 40 + (px >> 3)];
 
-    return c == ISLAND_CHAR || c == MARK_LAND;
+    if (c == MARK_LAND) return 1;
+    if (!IS_ISLAND(c)) return 0;
+    return charset_data[c * 8 + (py & 7)] & (0x80 >> (px & 7));
 }
 
 static unsigned char solid_at(int px, int py)
@@ -654,7 +679,7 @@ static void mark_target(shell_t *b, unsigned char color)
         b->under_ch = SCREEN[b->cell];
         b->under_col = COLORRAM[b->cell] & 0x0F;
     }
-    SCREEN[b->cell] = b->under_ch == ISLAND_CHAR ? MARK_LAND : MARK_CHAR;
+    SCREEN[b->cell] = IS_ISLAND(b->under_ch) ? MARK_LAND : MARK_CHAR;
     COLORRAM[b->cell] = color;
 }
 
