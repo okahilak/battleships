@@ -2,6 +2,8 @@
 
 Two-player naval duel for the Commodore 64, built with cc65 and run in VICE (`brew install cc65 vice`).
 
+<img src="docs/title.png" width="49%" alt="Title screen"> <img src="docs/gameplay.png" width="49%" alt="Gameplay">
+
 ```sh
 make                  # build everything into build/
 make run              # battleships (PRG=hello, border, song, galway)
