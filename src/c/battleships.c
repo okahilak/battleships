@@ -64,7 +64,13 @@
 #define MAX_REVERSE 64                  /* astern */
 #define SPEED_STEP  1                   /* engine change per frame: 0 to full in ~4 s */
 #define TURN_DELAY  5                   /* frames per 10-degree heading step */
+#define FPS         50                  /* PAL frames per second */
 #define RELOAD      30                  /* frames between shots */
+#define MAGAZINE    3                   /* shots before a cooldown */
+#define COOLDOWN    (5 * FPS)           /* frames to reload the magazine */
+#define AMMO_COL0   9                   /* HUD columns of the ammo display, */
+#define AMMO_COL1   26                  /* 5 cells each */
+#define AMMO_CELLS  5
 #define SHELLS_PER  2                   /* shells in flight per player */
 #define AIM_SPEED   2                   /* crosshair pixels per frame */
 #define AIM_AHEAD   64                  /* crosshair start distance from ship */
@@ -79,6 +85,8 @@ typedef struct {
     unsigned char dir;
     unsigned char turn_wait;
     unsigned char reload;
+    unsigned char shots;        /* left in the magazine */
+    unsigned char cooldown;     /* frames until the magazine is full again */
     unsigned char hp;
     unsigned char flash;
     unsigned char color;
@@ -197,6 +205,29 @@ static void put_number(unsigned char col, unsigned char n, unsigned char color)
     COLORRAM[col + 1] = color;
 }
 
+/* Ammo status in the HUD: one shell icon per shot (grey when used), or
+   while reloading a bar with one block per second left. */
+static void draw_ammo(unsigned char p)
+{
+    ship_t *s = &ships[p];
+    unsigned char *scr = SCREEN + (p ? AMMO_COL1 : AMMO_COL0);
+    unsigned char *col = COLORRAM + (p ? AMMO_COL1 : AMMO_COL0);
+    unsigned char i, n;
+
+    if (s->cooldown) {
+        n = (s->cooldown + FPS - 1) / FPS;      /* seconds left, rounded up */
+        for (i = 0; i < AMMO_CELLS; ++i) {
+            scr[i] = i < n ? 98 : ' ';          /* lower half block */
+            col[i] = COLOR_GRAY2;
+        }
+    } else {
+        for (i = 0; i < AMMO_CELLS; ++i) {
+            scr[i] = i < MAGAZINE ? 81 : ' ';   /* filled circle */
+            col[i] = i < s->shots ? s->color : COLOR_GRAY1;
+        }
+    }
+}
+
 static void draw_hud(void)
 {
     unsigned char i;
@@ -215,6 +246,8 @@ static void draw_hud(void)
     put_number(17, wins[0], COLOR_YELLOW);
     print(19, 0, "-", COLOR_WHITE);
     put_number(20, wins[1], COLOR_LIGHTRED);
+    draw_ammo(0);
+    draw_ammo(1);
 }
 
 /* ------------------------------------------------------------------ */
@@ -399,7 +432,7 @@ static unsigned char bot(unsigned char me)
         return 0;                       /* ... and release: shot */
     }
 
-    if (s->reload == 0 && (frame & 31) == me * 16) {
+    if (s->reload == 0 && s->shots && (frame & 31) == me * 16) {
         bot_phase[me] = 1;
     }
     /* heading that points most toward the target */
@@ -515,7 +548,7 @@ static void fire(unsigned char p)
     unsigned char i;
     int sx, sy, ax, ay;
 
-    if (s->reload) return;
+    if (s->reload || s->shots == 0) return;
     for (i = p * SHELLS_PER; i < (p + 1) * SHELLS_PER; ++i) {
         b = &shells[i];
         if (b->state == SHELL_FREE) {
@@ -534,6 +567,10 @@ static void fire(unsigned char p)
             b->dy = sdiv((s->aim_y - sy) << 4, b->flight);
             b->state = SHELL_FLYING;
             s->reload = RELOAD;
+            if (--s->shots == 0) {
+                s->cooldown = COOLDOWN;
+            }
+            draw_ammo(p);
             sfx_play(SFX_SHOT);
             return;
         }
@@ -571,6 +608,14 @@ static void move_ship(unsigned char p)
     int nx, ny;
 
     if (s->reload) --s->reload;
+    if (s->cooldown) {
+        if (--s->cooldown == 0) {
+            s->shots = MAGAZINE;
+        }
+        if (s->cooldown % FPS == 0) {
+            draw_ammo(p);               /* each second, and when reloaded */
+        }
+    }
     if (s->flash) --s->flash;
 
     if (joy & JOY_FIRE) {
@@ -710,6 +755,7 @@ static void new_round(void)
     ships[0].x = 32 * 16;  ships[0].y = 104 * 16; ships[0].dir = 0;
     ships[1].x = 287 * 16; ships[1].y = 104 * 16; ships[1].dir = HEADINGS / 2;
     ships[0].hp = ships[1].hp = MAX_HP;
+    ships[0].shots = ships[1].shots = MAGAZINE;
     ships[0].color = COLOR_YELLOW;
     ships[1].color = COLOR_LIGHTRED;
     ships[0].aim_x = 32 + AIM_AHEAD;  ships[0].aim_y = 104;
@@ -784,9 +830,10 @@ static void title(void)
     print_centered(15, "fire + up/down   engines", COLOR_WHITE);
     print_centered(16, "tap fire   shoot", COLOR_WHITE);
     print_centered(18, "shells land on your cross", COLOR_CYAN);
-    print_centered(19, "five hits sinks a ship", COLOR_CYAN);
-    print_centered(20, "running aground wrecks it", COLOR_CYAN);
-    print_centered(22, "press fire to start", COLOR_YELLOW);
+    print_centered(19, "3 shots, then a 5 s reload", COLOR_CYAN);
+    print_centered(20, "five hits sinks a ship", COLOR_CYAN);
+    print_centered(21, "running aground wrecks it", COLOR_CYAN);
+    print_centered(23, "press fire to start", COLOR_YELLOW);
 }
 
 extern char _BSS_RUN__[], _BSS_SIZE__[];
