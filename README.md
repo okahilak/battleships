@@ -36,7 +36,7 @@ make clean
 
 ## Battleships
 
-A real-time naval duel for two players, seen from above ([src/c/battleships.c](src/c/battleships.c)). Each ship survives 5 hits; the first to sink the other wins the round. A ship that runs aground on an island is wrecked at once (the screen edges just stop it). Shells fly over islands.
+A real-time naval duel for two players, seen from above ([src/c/battleships.c](src/c/battleships.c)). Each ship survives 3 hits; the first to sink the other wins the round. A ship that runs aground on an island is wrecked at once (the screen edges just stop it). Shells fly over islands.
 
 | | Player 1 (yellow) | Player 2 (red) |
 |---|---|---|

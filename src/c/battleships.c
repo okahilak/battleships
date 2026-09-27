@@ -18,7 +18,7 @@
  *   tap fire           fire a shell; it flies in an arc and lands on the
  *                      crosshair after a delay, hitting any ship there
  *
- * Each ship takes 5 hits. A ship that runs aground on an island is wrecked
+ * Each ship takes 3 hits. A ship that runs aground on an island is wrecked
  * at once. The screen edges just stop it.
  *
  * Build with -DAUTOPLAY to let two simple bots play (used for testing).
@@ -68,7 +68,7 @@
 #define JOY_FIRE    0x10
 #define JOY_DIRS    (JOY_UP | JOY_DOWN | JOY_LEFT | JOY_RIGHT)
 
-#define MAX_HP      5
+#define MAX_HP      3
 /* Ship physics. Velocity is in 1/256 pixel per frame. */
 #define MAX_SPEED   192                 /* ahead: 0.75 pixels per frame */
 #define MAX_REVERSE 64                  /* astern */
@@ -304,8 +304,8 @@ static void draw_hud(void)
     for (i = 0; i < MAX_HP; ++i) {
         SCREEN[3 + i] = 83;                 /* heart */
         COLORRAM[3 + i] = i < ships[0].hp ? COLOR_YELLOW : COLOR_GRAY1;
-        SCREEN[32 + i] = 83;
-        COLORRAM[32 + i] = i < ships[1].hp ? COLOR_LIGHTRED : COLOR_GRAY1;
+        SCREEN[37 - MAX_HP + i] = 83;       /* right-aligned next to "p2" */
+        COLORRAM[37 - MAX_HP + i] = i < ships[1].hp ? COLOR_LIGHTRED : COLOR_GRAY1;
     }
     put_number(17, wins[0], COLOR_YELLOW);
     print(19, 0, "-", COLOR_WHITE);
@@ -986,7 +986,7 @@ static void title(void)
     print_centered(16, "tap fire   shoot", COLOR_WHITE);
     print_centered(18, "shells land on your cross", COLOR_CYAN);
     print_centered(19, "3 shots, then a 2.5 s reload", COLOR_CYAN);
-    print_centered(20, "five hits sinks a ship", COLOR_CYAN);
+    print_centered(20, "three hits sink a ship", COLOR_CYAN);
     print_centered(21, "running aground wrecks it", COLOR_CYAN);
     print_centered(23, "press fire to start", COLOR_YELLOW);
 }
