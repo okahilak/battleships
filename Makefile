@@ -20,7 +20,8 @@ PRGS     := $(C_PRGS) $(ASM_PRGS) $(BUILD)/song.prg $(BUILD)/galway.prg
 
 OBJ     := $(BUILD)/obj
 
-CFLAGS  := -t c64 -O -Or
+# -Cl: static locals (much faster code from cc65), -Oirs: optimize, inline
+CFLAGS  := -t c64 -Oirs -Cl
 AFLAGS  := -t c64
 # asm programs link with the BASIC SYS stub
 ASM_LDFLAGS := -t c64 -C c64-asm.cfg -u __EXEHDR__

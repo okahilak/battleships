@@ -74,11 +74,17 @@
 #define JOY_DIRS    (JOY_UP | JOY_DOWN | JOY_LEFT | JOY_RIGHT)
 
 #define MAX_HP      3
-/* Ship physics. Velocity is in 1/256 pixel per frame. */
-#define MAX_SPEED   192                 /* ahead: 0.75 pixels per frame */
-#define MAX_REVERSE 64                  /* astern */
-#define SPEED_STEP  3                   /* max speed change per frame toward the setpoint */
-#define SET_STEP    18                  /* setpoint change per frame while fire+up/down */
+/* The game logic runs at a fixed 25 Hz tick (every 2nd frame, timed by the
+   music interrupt), which leaves room for busy moments. Ship physics are per
+   tick; speed is in 1/512 pixel per tick. (These values were tuned when the
+   loop still ran at a varying ~3.5 frames per pass and were rescaled so the
+   ships feel the same.) */
+#define TPS         25                  /* game ticks per second */
+#define MAX_SPEED   216                 /* ahead: ~0.42 pixels per tick */
+#define MAX_REVERSE 72                  /* astern */
+#define SPEED_STEP  2                   /* max speed change per tick toward the setpoint */
+#define SPEED_LAG   4                   /* speed closes gap / 2^SPEED_LAG per tick */
+#define SET_STEP    40                  /* setpoint change per tick while fire+up/down */
 
 /* Engine slider on the bottom row: 17 cells from full astern to full ahead. */
 #define SLIDER_ROW   24
@@ -90,20 +96,20 @@
 #define SL_TRACK     64                 /* horizontal line */
 #define SL_ZERO      91                 /* cross: stop */
 #define SL_KNOB      90                 /* diamond: setpoint */
-/* Turning: TURN_RATE / TURN_COST heading steps per frame, i.e. one
-   10-degree step every 6.25 frames. */
-#define TURN_RATE   4
-#define TURN_COST   25
-#define FPS         50                  /* PAL frames per second */
-#define RELOAD      30                  /* frames between shots */
+/* Turning: TURN_RATE / TURN_COST heading steps per tick, i.e. one
+   10-degree step every 11 ticks (0.44 s). */
+#define TURN_RATE   8
+#define TURN_COST   88
+
+#define RELOAD      52                  /* ticks between shots */
 #define MAGAZINE    3                   /* shots before a cooldown */
-#define COOLDOWN    (5 * FPS / 2)       /* frames to reload the magazine (2.5 s) */
+#define COOLDOWN    (5 * TPS / 2)       /* ticks to reload the magazine (2.5 s) */
 #define AMMO_COL0   9                   /* HUD columns of the ammo display, */
 #define AMMO_COL1   26                  /* 5 cells each */
 #define AMMO_CELLS  5
-#define COOL_CELL   (COOLDOWN / AMMO_CELLS)  /* reload frames per bar block */
+#define COOL_CELL   (COOLDOWN / AMMO_CELLS)  /* reload ticks per bar block */
 #define SHELLS_PER  2                   /* shells in flight per player */
-#define AIM_SPEED   2                   /* crosshair pixels per frame */
+/* crosshair: 1 pixel per tick */
 #define AIM_AHEAD   64                  /* crosshair start distance from ship */
 #define HIT_RANGE   10                  /* pixels from ship centre that count as a hit */
 #define HIT_RANGE_SPOT 18               /* ... with a spotter plane correcting fire */
@@ -111,23 +117,31 @@
 /* Power-up crates: one at a time on open sea; sail next to it to pick up. */
 enum { PU_FAST, PU_REPAIR, PU_SPOT, PU_KINDS };
 #define CRATE_CHAR0     113             /* + kind: fast, repair, spotter */
-#define FAST_TIME       (15 * FPS)      /* shells fly twice as fast */
-#define SPOT_TIME       (10 * FPS)      /* wider hit radius, icebergs shown */
-#define CRATE_FIRST     (10 * FPS)      /* first crate of a round */
-#define CRATE_DELAY     (15 * FPS)      /* next crate after 15-20 s */
-#define CRATE_JITTER    (5 * FPS)
+#define FAST_TIME       (15 * TPS)      /* shells fly twice as fast */
+#define SPOT_TIME       (10 * TPS)      /* wider hit radius, icebergs shown */
+#define CRATE_FIRST     (10 * TPS)      /* first crate of a round */
+#define CRATE_DELAY     (15 * TPS)      /* next crate after 15-20 s */
+#define CRATE_JITTER    (5 * TPS)
 #define PU_COL0         14              /* HUD columns of the active power-ups */
 #define PU_COL1         23
-#define SPLASH_TIME 20                  /* frames the impact stays visible */
+#define SPLASH_TIME 35                  /* ticks the impact stays visible */
+#define FLASH_TIME  28                  /* ticks a hit ship flashes */
 
 typedef struct {
     int x, y;                   /* centre, 1/16 pixel */
-    int speed;                  /* along the heading, 1/256 pixel per frame */
+    int speed;                  /* along the heading, 1/512 pixel per tick */
     int setpoint;               /* engine setting the speed follows */
     unsigned char knob_cell;    /* slider as last drawn */
     unsigned char fill_cell;
-    int vx, vy;                 /* resulting velocity, derived each frame */
-    int rx, ry;                 /* sub-step remainder, 0..15 */
+    int vx, vy;                 /* resulting velocity, 1/4096 pixel per tick */
+    int rx, ry;                 /* sub-step remainder, 0..255 */
+    int last_px, last_py;       /* pixel position/heading of the last land check */
+    unsigned char last_dir;
+    int v_speed;                /* speed/heading vx, vy were computed for */
+    unsigned char v_dir;
+    unsigned char cx, cy;       /* screen cells of centre, bow and stern, */
+    unsigned char bcx, bcy;     /* updated each frame (255 = off screen) */
+    unsigned char scx, scy;
     unsigned char dir;
     unsigned char turn_acc;     /* builds up to TURN_COST for the next step */
     signed char rudder;         /* -1 left, 0 straight, 1 right */
@@ -154,8 +168,10 @@ typedef struct {
     int x, y;                   /* ground position under the shell, 1/16 pixel */
     int dx, dy;                 /* step per frame, 1/16 pixel */
     int tx, ty;                 /* landing point, pixels */
-    unsigned char flight;       /* total flight time, frames */
-    unsigned char t;            /* frames flown, or splash countdown */
+    unsigned int flight;        /* total flight time, ticks */
+    unsigned int t;             /* ticks flown, or splash countdown */
+    unsigned int ph, dph;       /* arc phase (8.8, 0..64) and its step per tick */
+    unsigned char peak;         /* arc height at the top, pixels */
     unsigned char block, color; /* impact sprite */
     unsigned int cell;          /* screen cell of the landing mark */
     unsigned char under_ch;     /* what the mark covers */
@@ -467,9 +483,17 @@ static void place_sprite(unsigned char n, int x, int y)
     }
 }
 
+/* 64 * 4 * t * (1 - t) for t = 0..63/64: a parabola from 0 up to 64 and back */
+static const unsigned char parabola[64] = {
+     0,  4,  8, 11, 15, 18, 22, 25, 28, 31, 34, 36, 39, 41, 44, 46,
+    48, 50, 52, 53, 55, 56, 58, 59, 60, 61, 62, 62, 63, 63, 64, 64,
+    64, 64, 64, 63, 63, 62, 62, 61, 60, 59, 58, 56, 55, 53, 52, 50,
+    48, 46, 44, 41, 39, 36, 34, 31, 28, 25, 22, 18, 15, 11,  8,  4
+};
+
 static void update_sprites(void)
 {
-    unsigned char i, n, arc, size, ena = 0;
+    unsigned char i, n, arc, size, h, ena = 0;
     ship_t *sh;
     shell_t *b;
 
@@ -478,7 +502,7 @@ static void update_sprites(void)
         n = SPR_SHIP(i);
         if (sh->hp) {
             SPRPTR[n] = BLK_SHIP + sh->dir;
-            SPRCOLOR[n] = (sh->flash & 2) ? COLOR_WHITE
+            SPRCOLOR[n] = (sh->flash & 4) ? COLOR_WHITE
                         : sh->cooldown ? sh->cool_color : sh->color;
             place_sprite(SPR_AIM(i), sh->aim_x - 3, sh->aim_y - 3);
             ena |= 1 << SPR_AIM(i);
@@ -490,10 +514,12 @@ static void update_sprites(void)
         b = &shells[i];
         n = SPR_SHELL(i);
         if (b->state == SHELL_FLYING) {
-            /* parabolic arc: height peaks at flight/8 pixels halfway */
-            arc = (unsigned char)((unsigned)b->t * (b->flight - b->t) / (b->flight * 2));
-            /* size follows height: arc / (peak / SHELL_SIZES) */
-            size = arc * SHELL_SIZES / (b->flight / 8 + 1);
+            /* parabolic arc from a table: height peaks at flight/14 pixels
+               halfway; the sprite size follows the height */
+            h = (unsigned char)(b->ph >> 8);
+            h = parabola[h > 63 ? 63 : h];
+            arc = (unsigned char)((h * b->peak) >> 6);
+            size = h >> 4;
             if (size >= SHELL_SIZES) size = SHELL_SIZES - 1;
             SPRPTR[n] = BLK_SHELL + size;
             SPRCOLOR[n] = COLOR_WHITE;
@@ -544,6 +570,21 @@ static void wait_frame(void)
     ++frame;
 }
 
+/* Game tick: every 2nd frame, counted by the music interrupt. If a tick ran
+   long, the next one starts right away so the average stays at 25 Hz. */
+extern volatile unsigned char irq_frames;
+static unsigned char tick_due;
+
+static void wait_tick(void)
+{
+    while ((signed char)(irq_frames - tick_due) < 0) ;
+    tick_due += 2;
+    if ((signed char)(irq_frames - tick_due) > 4) {
+        tick_due = irq_frames;          /* far behind (e.g. a slow redraw): resync */
+    }
+    ++frame;
+}
+
 #ifdef AUTOPLAY
 /* Test bot: sail toward the other ship; now and then aim at where it will be
    when the shell lands, then tap fire. */
@@ -563,9 +604,9 @@ static unsigned char bot(unsigned char me)
 
     switch (bot_phase[me]) {
     case 1:                             /* fire released: move crosshair onto target */
-        lead = 25 + (ax > ay ? ax : ay) / 5;
-        ex = (t->x >> 4) + t->vx / 16 * lead / 16;
-        ey = (t->y >> 4) + t->vy / 16 * lead / 16;
+        lead = 44 + (ax > ay ? ax : ay) * 7 / 20;
+        ex = (t->x >> 4) + t->vx / 16 * lead / 256;
+        ey = (t->y >> 4) + t->vy / 16 * lead / 256;
         if (s->aim_x < ex - 2) joy |= JOY_RIGHT;
         else if (s->aim_x > ex + 2) joy |= JOY_LEFT;
         if (s->aim_y < ey - 2) joy |= JOY_DOWN;
@@ -606,7 +647,7 @@ static unsigned char bot(unsigned char me)
         return (s->prev_dirs & d) ? JOY_FIRE : (d | JOY_FIRE);
     }
     /* cruise at about half speed, stop when close */
-    if (ax + ay > 60 && s->setpoint < 100) {
+    if (ax + ay > 60 && s->setpoint < 114) {
         joy |= JOY_UP;
     } else if (ax + ay <= 60 && s->setpoint > 0) {
         joy |= JOY_DOWN;
@@ -651,21 +692,21 @@ static unsigned char off_sea(int px, int py)
     return px < 2 || px > 317 || py < 10 || py > 197;
 }
 
-/* Inside the screen below the HUD row, where land_at() may look. */
-static unsigned char on_screen(int px, int py)
-{
-    return px >= 0 && px < 320 && py >= 8 && py < 200;
-}
-
 /* Only for points inside the sea area (check off_sea first). */
 /* Pixel-precise: water in the rounded coast tiles doesn't count as land. */
+static const unsigned int row_off[25] = {
+    0, 40, 80, 120, 160, 200, 240, 280, 320, 360, 400, 440, 480,
+    520, 560, 600, 640, 680, 720, 760, 800, 840, 880, 920, 960
+};
+static const unsigned char pixel_bit[8] = { 0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01 };
+
 static unsigned char land_at(int px, int py)
 {
-    unsigned char c = SCREEN[(py >> 3) * 40 + (px >> 3)];
+    unsigned char c = SCREEN[row_off[(unsigned char)py >> 3] + ((unsigned)px >> 3)];
 
     if (c == MARK_LAND) return 1;
     if (!IS_ISLAND(c)) return 0;
-    return charset_data[c * 8 + (py & 7)] & (0x80 >> (px & 7));
+    return charset_data[((unsigned)c << 3) | ((unsigned char)py & 7)] & pixel_bit[(unsigned char)px & 7];
 }
 
 static unsigned char solid_at(int px, int py)
@@ -678,24 +719,75 @@ enum { CONTACT_NONE, CONTACT_EDGE, CONTACT_LAND };
 /* What the ship touches at position (x,y). Only the centre is stopped by the
    screen edge, so bow and stern can slide under the border; all three points
    run aground on land. */
-static unsigned char ship_contact(int x, int y, unsigned char d)
+/* On-screen test for bow/stern points (below the HUD row). */
+#define ON_SCREEN(px, py) ((unsigned)(px) < 320 && (unsigned)((py) - 8) < 192)
+
+static unsigned char pcx, pcy;          /* cell of the last probe (255 = off screen) */
+
+/* Land at pixel (px,py)? Also leaves its screen cell in pcx/pcy. */
+static unsigned char probe(int px, int py)
+{
+    unsigned char c, ux, uy;
+
+    if (!ON_SCREEN(px, py)) {
+        pcx = pcy = 255;
+        return 0;
+    }
+    ux = (unsigned char)((unsigned)px >> 3);
+    uy = (unsigned char)py >> 3;
+    pcx = ux;
+    pcy = uy;
+    c = SCREEN[row_off[uy] + ux];
+    if (c == MARK_LAND) return 1;
+    if (!IS_ISLAND(c)) return 0;
+    return charset_data[((unsigned)c << 3) | ((unsigned char)py & 7)] & pixel_bit[(unsigned char)px & 7];
+}
+
+static unsigned char cells_changed;     /* some ship's cells moved this frame */
+
+/* What the ship touches at position (x,y), checking centre, bow and stern
+   in one pass; unless it hit the edge, the ship's cell cache is updated. */
+static unsigned char ship_contact(ship_t *s, int x, int y)
 {
     int px = x >> 4;
     int py = y >> 4;
-    int bx = px + bow_x[d];
-    int by = py + bow_y[d];
-    int sx = px - bow_x[d];
-    int sy = py - bow_y[d];
+    signed char bx = bow_x[s->dir];
+    signed char by = bow_y[s->dir];
+    unsigned char land;
 
-    if (off_sea(px, py)) {
+    if (px < 2 || px > 317 || py < 10 || py > 197) {
         return CONTACT_EDGE;
     }
-    if (land_at(px, py)
-        || (on_screen(bx, by) && land_at(bx, by))
-        || (on_screen(sx, sy) && land_at(sx, sy))) {
-        return CONTACT_LAND;
+    land = probe(px, py);
+    if (pcx != s->cx || pcy != s->cy) { s->cx = pcx; s->cy = pcy; cells_changed = 1; }
+    land |= probe(px + bx, py + by);
+    if (pcx != s->bcx || pcy != s->bcy) { s->bcx = pcx; s->bcy = pcy; cells_changed = 1; }
+    land |= probe(px - bx, py - by);
+    if (pcx != s->scx || pcy != s->scy) { s->scx = pcx; s->scy = pcy; cells_changed = 1; }
+    return land ? CONTACT_LAND : CONTACT_NONE;
+}
+
+/* Caches the screen cells of the ship's centre, bow and stern. */
+static void ship_cells(ship_t *s)
+{
+    unsigned char ocx = s->cx, ocy = s->cy, obx = s->bcx, oby = s->bcy, osx = s->scx, osy = s->scy;
+
+    int px = s->x >> 4;
+    int py = s->y >> 4;
+    int bx = px + bow_x[s->dir];
+    int by = py + bow_y[s->dir];
+    int sx = px - bow_x[s->dir];
+    int sy = py - bow_y[s->dir];
+
+    s->cx = (unsigned char)((unsigned)px >> 3);
+    s->cy = (unsigned char)py >> 3;
+    if (ON_SCREEN(bx, by)) { s->bcx = (unsigned char)((unsigned)bx >> 3); s->bcy = (unsigned char)by >> 3; }
+    else s->bcx = s->bcy = 255;
+    if (ON_SCREEN(sx, sy)) { s->scx = (unsigned char)((unsigned)sx >> 3); s->scy = (unsigned char)sy >> 3; }
+    else s->scx = s->scy = 255;
+    if (ocx != s->cx || ocy != s->cy || obx != s->bcx || oby != s->bcy || osx != s->scx || osy != s->scy) {
+        cells_changed = 1;
     }
-    return CONTACT_NONE;
 }
 
 static int iabs(int v)
@@ -705,7 +797,7 @@ static int iabs(int v)
 
 /* Signed division by a small positive number. cc65 divides unsigned when the
    divisor is an unsigned char, which turns negative steps into huge ones. */
-static int sdiv(int n, unsigned char d)
+static int sdiv(int n, unsigned int d)
 {
     return n < 0 ? -(int)((unsigned)-n / d) : (int)((unsigned)n / d);
 }
@@ -767,11 +859,14 @@ static void fire(unsigned char p)
             ax = iabs(s->aim_x - sx);
             ay = iabs(s->aim_y - sy);
             /* flight time grows with distance (approximate length) */
-            b->flight = 25 + (ax > ay ? ax + ay / 2 : ay + ax / 2) / 5;
+            b->flight = 44 + (ax > ay ? ax + ay / 2 : ay + ax / 2) * 7 / 20;
             if (s->fast_t) {
                 b->flight /= 2;         /* fast shells power-up */
             }
             b->t = 0;
+            b->ph = 0;
+            b->dph = 16384u / b->flight;   /* 64 phase steps (8.8) per flight */
+            b->peak = (unsigned char)(b->flight / 14);
             b->x = sx << 4;
             b->y = sy << 4;
             b->tx = s->aim_x;
@@ -793,10 +888,10 @@ static void fire(unsigned char p)
 
 static void move_aim(ship_t *s, unsigned char joy)
 {
-    if (joy & JOY_LEFT)  s->aim_x -= AIM_SPEED;
-    if (joy & JOY_RIGHT) s->aim_x += AIM_SPEED;
-    if (joy & JOY_UP)    s->aim_y -= AIM_SPEED;
-    if (joy & JOY_DOWN)  s->aim_y += AIM_SPEED;
+    if (joy & JOY_LEFT)  --s->aim_x;
+    if (joy & JOY_RIGHT) ++s->aim_x;
+    if (joy & JOY_UP)    --s->aim_y;
+    if (joy & JOY_DOWN)  ++s->aim_y;
     if (s->aim_x < 4)   s->aim_x = 4;
     if (s->aim_x > 315) s->aim_x = 315;
     if (s->aim_y < 12)  s->aim_y = 12;
@@ -808,9 +903,9 @@ static void move_aim(ship_t *s, unsigned char joy)
 static int step(int *rem, int v)
 {
     int t = *rem + v;
-    int move = t >= 0 ? t >> 4 : -((15 - t) >> 4);   /* floor(t / 16) */
+    int move = t >= 0 ? t >> 8 : -(int)((unsigned)(255 - t) >> 8);  /* floor(t / 256) */
 
-    *rem = t - move * 16;
+    *rem = t & 255;
     return move;
 }
 
@@ -818,7 +913,7 @@ static void move_ship(unsigned char p)
 {
     ship_t *s = &ships[p];
     unsigned char joy = read_joy(p);
-    unsigned char contact, pressed;
+    unsigned char contact, pressed, moved_setpoint;
     int nx, ny, d;
 
     if (s->reload) --s->reload;
@@ -879,44 +974,70 @@ static void move_ship(unsigned char p)
     }
 
     /* fire + up/down moves the engine setting */
+    moved_setpoint = 0;
     if ((joy & JOY_UP) && !s->up_centred) {
         s->setpoint += SET_STEP;
         if (s->setpoint > MAX_SPEED) s->setpoint = MAX_SPEED;
+        moved_setpoint = 1;
     } else if (joy & JOY_DOWN) {
         s->setpoint -= SET_STEP;
         if (s->setpoint < -MAX_REVERSE) s->setpoint = -MAX_REVERSE;
+        moved_setpoint = 1;
     }
 
-    /* the speed follows the setting with a delay: an eighth of the gap per
-       frame, at least 1 and at most SPEED_STEP; nothing else slows it down */
-    d = (s->setpoint - s->speed) / 8;
-    if (d == 0 && s->setpoint != s->speed) d = s->setpoint > s->speed ? 1 : -1;
-    if (d > SPEED_STEP) d = SPEED_STEP;
-    if (d < -SPEED_STEP) d = -SPEED_STEP;
-    s->speed += d;
-
-    if (slider_cell(s->setpoint) != s->knob_cell || slider_cell(s->speed) != s->fill_cell) {
-        draw_slider(p);
+    /* the speed follows the setting with a delay: 1/2^SPEED_LAG of the gap
+       per tick, at least 1 and at most SPEED_STEP; nothing else slows it */
+    if (s->speed != s->setpoint || moved_setpoint) {
+        d = s->setpoint - s->speed;
+        d = d >= 0 ? (d >> SPEED_LAG) : -((-d) >> SPEED_LAG);
+        if (d == 0 && s->setpoint != s->speed) d = s->setpoint > s->speed ? 1 : -1;
+        if (d > SPEED_STEP) d = SPEED_STEP;
+        if (d < -SPEED_STEP) d = -SPEED_STEP;
+        s->speed += d;
+        if (slider_cell(s->setpoint) != s->knob_cell || slider_cell(s->speed) != s->fill_cell) {
+            draw_slider(p);
+        }
     }
 
-    /* the ship moves the way its bow points (head_x/y are scaled by 32) */
-    s->vx = head_x[s->dir] * s->speed / 32;
-    s->vy = head_y[s->dir] * s->speed / 32;
-
-    nx = s->x + step(&s->rx, s->vx);
-    ny = s->y + step(&s->ry, s->vy);
-    contact = ship_contact(nx, ny, s->dir);
-    if (contact == CONTACT_EDGE) {
-        s->speed = 0;
+    /* the ship moves the way its bow points (head_x/y are scaled by 32);
+       velocity in 1/4096 pixel per tick, recomputed only on a change */
+    if (s->speed != s->v_speed || s->dir != s->v_dir) {
+        s->vx = (head_x[s->dir] * s->speed) >> 2;
+        s->vy = (head_y[s->dir] * s->speed) >> 2;
+        s->v_speed = s->speed;
+        s->v_dir = s->dir;
+    }
+    if (s->vx || s->vy) {
+        nx = s->x + step(&s->rx, s->vx);
+        ny = s->y + step(&s->ry, s->vy);
     } else {
+        nx = s->x;
+        ny = s->y;
+    }
+
+    /* land/edge checks and cell cache only when the pixel position or the
+       heading changes (a ship moves about a pixel every few frames) */
+    if ((nx >> 4) != s->last_px || (ny >> 4) != s->last_py || s->dir != s->last_dir) {
+        contact = ship_contact(s, nx, ny);
+        if (contact == CONTACT_EDGE) {
+            s->speed = 0;
+            s->rx = s->ry = 0;
+            return;                     /* stay put; recheck next frame */
+        }
         s->x = nx;
         s->y = ny;
+        s->last_px = nx >> 4;
+        s->last_py = ny >> 4;
+        s->last_dir = s->dir;
         if (contact == CONTACT_LAND) {
             /* ran aground: wrecked on the spot */
             s->hp = 0;
             s->speed = 0;
             draw_hud();
         }
+    } else {
+        s->x = nx;
+        s->y = ny;
     }
 }
 
@@ -926,7 +1047,7 @@ static void damage(unsigned char p)
     ship_t *s = &ships[p];
 
     if (s->hp) --s->hp;
-    s->flash = 16;
+    s->flash = FLASH_TIME;
     sfx_play(SFX_HIT);
     draw_hud();
 }
@@ -1010,14 +1131,18 @@ static void show_iceberg(iceberg_t *ice, unsigned char show)
 
 /* Reveals icebergs next to a ship, hides them again when it leaves, and
    makes a ship that touches one (centre, bow or stern) pay a heart. */
+static unsigned char last_spotting;
+
 static void update_icebergs(void)
 {
-    unsigned char i, k, nearby, cx, cy, spotting;
-    int px, py;
+    unsigned char i, k, nearby, col, row, spotting;
     iceberg_t *ice;
     ship_t *s;
 
     spotting = ships[0].spot_t || ships[1].spot_t;  /* a spotter plane shows them all */
+    if (!cells_changed && spotting == last_spotting) return;
+    cells_changed = 0;
+    last_spotting = spotting;
     for (i = 0; i < ice_count; ++i) {
         ice = &icebergs[i];
         if (!ice->alive) continue;
@@ -1025,14 +1150,12 @@ static void update_icebergs(void)
         for (k = 0; k < 2; ++k) {
             s = &ships[k];
             if (!s->hp) continue;
-            px = s->x >> 4;
-            py = s->y >> 4;
-            cx = (unsigned char)(px >> 3);
-            cy = (unsigned char)(py >> 3);
-            if (iceberg_near(ice, cx, cy, 1)) nearby = 1;
-            if ((cx == ice->col && cy == ice->row)
-                || (((px + bow_x[s->dir]) >> 3) == ice->col && ((py + bow_y[s->dir]) >> 3) == ice->row)
-                || (((px - bow_x[s->dir]) >> 3) == ice->col && ((py - bow_y[s->dir]) >> 3) == ice->row)) {
+            col = ice->col;
+            row = ice->row;
+            if ((unsigned char)(s->cx - col + 1) <= 2 && (unsigned char)(s->cy - row + 1) <= 2) nearby = 1;
+            if ((s->cx == col && s->cy == row)
+                || (s->bcx == col && s->bcy == row)
+                || (s->scx == col && s->scy == row)) {
                 hit(k);
                 ice->alive = 0;
                 show_iceberg(ice, 0);
@@ -1055,11 +1178,8 @@ static unsigned int crate_timer;
 
 static unsigned char ship_within(ship_t *s, unsigned char col, unsigned char row, unsigned char dist)
 {
-    unsigned char cx = (unsigned char)((s->x >> 4) >> 3);
-    unsigned char cy = (unsigned char)((s->y >> 4) >> 3);
-
-    return (unsigned char)(cx - col + dist) <= 2 * dist
-        && (unsigned char)(cy - row + dist) <= 2 * dist;
+    return (unsigned char)(s->cx - col + dist) <= 2 * dist
+        && (unsigned char)(s->cy - row + dist) <= 2 * dist;
 }
 
 /* Tries a few random spots on open sea, away from ships and icebergs. */
@@ -1168,6 +1288,7 @@ static void move_shells(void)
         if (b->state == SHELL_FLYING) {
             b->x += b->dx;
             b->y += b->dy;
+            b->ph += b->dph;
             if (++b->t >= b->flight) {
                 land(b);
             }
@@ -1222,7 +1343,11 @@ static void new_round(void)
     ships[0].stick_used = ships[1].stick_used = 1;
     for (i = 0; i < 2; ++i) {
         SPRCOLOR[SPR_AIM(i)] = ships[i].color;
+        ships[i].last_px = -1;          /* force a land check on the first frame */
+        ships[i].v_speed = -1;
+        ship_cells(&ships[i]);
     }
+    cells_changed = 1;
 
     draw_map();
     place_icebergs();
@@ -1241,8 +1366,9 @@ static unsigned char play_round(void)
 
     new_round();
     ships_touching = 0;
+    tick_due = irq_frames;
     while (ships[0].hp && ships[1].hp) {
-        wait_frame();
+        wait_tick();
         update_sprites();
         move_ship(0);
         move_ship(1);

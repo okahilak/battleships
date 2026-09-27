@@ -15,7 +15,7 @@
 ; The CIA timer interrupt is switched off, so the KERNAL no longer scans the
 ; keyboard (it would also disturb joystick reads through $dc00).
 
-        .export _sound_start, _music_select, _sfx_play
+        .export _sound_start, _music_select, _sfx_play, _irq_frames
         .import music_init, music_play, music_mute
         .import neon_song, galway_song
 
@@ -43,6 +43,7 @@ SONG_COUNT = * - songs_hi
 
 .segment "BSS"
 music_on:  .res 1               ; 0 = music off
+_irq_frames: .res 1             ; frames since start (for the game's 25 Hz tick)
 pending:   .res 1               ; requested effect, $ff = none
 current:   .res 1               ; playing effect, $ff = none
 timer:     .res 1
@@ -118,6 +119,7 @@ _sfx_play:
 @done:  rts
 
 irq:    asl $d019               ; acknowledge raster interrupt
+        inc _irq_frames
         jsr sfx_tick            ; before music, so the mute is set in time
         lda music_on
         beq :+
