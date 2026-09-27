@@ -50,6 +50,8 @@
 
 #define ISLAND_CHAR 160                 /* reverse space */
 #define WAVE_CHAR   100                 /* thin line at bottom of cell */
+#define MARK_CHAR   87                  /* ring: where a shell will land */
+#define MARK_LAND   (MARK_CHAR | 0x80)  /* the same on an island square */
 
 #define JOY_UP      0x01
 #define JOY_DOWN    0x02
@@ -90,6 +92,7 @@ typedef struct {
     unsigned char hp;
     unsigned char flash;
     unsigned char color;
+    unsigned char cool_color;   /* hull colour while the magazine reloads */
     int aim_x, aim_y;           /* crosshair, pixels */
     unsigned char fire_held;
     unsigned char stick_used;   /* joystick moved during this press: no shot */
@@ -105,6 +108,9 @@ typedef struct {
     unsigned char flight;       /* total flight time, frames */
     unsigned char t;            /* frames flown, or splash countdown */
     unsigned char block, color; /* impact sprite */
+    unsigned int cell;          /* screen cell of the landing mark */
+    unsigned char under_ch;     /* what the mark covers */
+    unsigned char under_col;
 } shell_t;
 
 typedef struct { unsigned char c, r, w, h; } island_t;
@@ -338,7 +344,8 @@ static void update_sprites(void)
         n = SPR_SHIP(i);
         if (sh->hp) {
             SPRPTR[n] = BLK_SHIP + sh->dir;
-            SPRCOLOR[n] = (sh->flash & 2) ? COLOR_WHITE : sh->color;
+            SPRCOLOR[n] = (sh->flash & 2) ? COLOR_WHITE
+                        : sh->cooldown ? sh->cool_color : sh->color;
             place_sprite(SPR_AIM(i), sh->aim_x - 3, sh->aim_y - 3);
             ena |= 1 << SPR_AIM(i);
         }
@@ -501,7 +508,9 @@ static unsigned char off_sea(int px, int py)
 /* Only for points inside the sea area (check off_sea first). */
 static unsigned char land_at(int px, int py)
 {
-    return SCREEN[(py >> 3) * 40 + (px >> 3)] == ISLAND_CHAR;
+    unsigned char c = SCREEN[(py >> 3) * 40 + (px >> 3)];
+
+    return c == ISLAND_CHAR || c == MARK_LAND;
 }
 
 static unsigned char solid_at(int px, int py)
@@ -540,6 +549,46 @@ static int sdiv(int n, unsigned char d)
     return n < 0 ? -(int)((unsigned)-n / d) : (int)((unsigned)n / d);
 }
 
+/* Another shell in flight whose landing mark is on the same cell, or 0. */
+static shell_t *mark_shared(shell_t *b)
+{
+    unsigned char i;
+    shell_t *o;
+
+    for (i = 0; i < 2 * SHELLS_PER; ++i) {
+        o = &shells[i];
+        if (o != b && o->state == SHELL_FLYING && o->cell == b->cell) {
+            return o;
+        }
+    }
+    return 0;
+}
+
+/* Marks the landing point with a ring in the shooter's colour. */
+static void mark_target(shell_t *b, unsigned char color)
+{
+    shell_t *o;
+
+    b->cell = (b->ty >> 3) * 40 + (b->tx >> 3);
+    if ((o = mark_shared(b)) != 0) {
+        b->under_ch = o->under_ch;      /* cell already shows a mark */
+        b->under_col = o->under_col;
+    } else {
+        b->under_ch = SCREEN[b->cell];
+        b->under_col = COLORRAM[b->cell] & 0x0F;
+    }
+    SCREEN[b->cell] = b->under_ch == ISLAND_CHAR ? MARK_LAND : MARK_CHAR;
+    COLORRAM[b->cell] = color;
+}
+
+static void unmark_target(shell_t *b)
+{
+    if (!mark_shared(b)) {
+        SCREEN[b->cell] = b->under_ch;
+        COLORRAM[b->cell] = b->under_col;
+    }
+}
+
 /* Launches a shell from the bow toward the crosshair. */
 static void fire(unsigned char p)
 {
@@ -566,6 +615,7 @@ static void fire(unsigned char p)
             b->dx = sdiv((s->aim_x - sx) << 4, b->flight);
             b->dy = sdiv((s->aim_y - sy) << 4, b->flight);
             b->state = SHELL_FLYING;
+            mark_target(b, s->color);
             s->reload = RELOAD;
             if (--s->shots == 0) {
                 s->cooldown = COOLDOWN;
@@ -697,6 +747,7 @@ static void land(shell_t *b)
     unsigned char k;
     ship_t *t;
 
+    unmark_target(b);
     b->state = SHELL_SPLASH;
     b->t = SPLASH_TIME;
     b->block = BLK_SPLASH;
@@ -758,6 +809,9 @@ static void new_round(void)
     ships[0].shots = ships[1].shots = MAGAZINE;
     ships[0].color = COLOR_YELLOW;
     ships[1].color = COLOR_LIGHTRED;
+    /* nearby hue, similar brightness: shows the reload at a glance */
+    ships[0].cool_color = COLOR_LIGHTGREEN;
+    ships[1].cool_color = COLOR_VIOLET;
     ships[0].aim_x = 32 + AIM_AHEAD;  ships[0].aim_y = 104;
     ships[1].aim_x = 287 - AIM_AHEAD; ships[1].aim_y = 104;
     /* fire may still be held from the previous screen: ignore that press */
