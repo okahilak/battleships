@@ -1404,11 +1404,28 @@ static unsigned char play_round(void)
     return ships[0].hp ? 0 : 1;
 }
 
+/* Big striped "BATTLESHIPS" logo (tiles from gen_charset.py), rows 1-3,
+   shaded yellow -> orange -> light red. */
+static void draw_logo(void)
+{
+    static const unsigned char shade[TITLE_ROWS] = { COLOR_YELLOW, COLOR_ORANGE, COLOR_LIGHTRED };
+    unsigned char r, c;
+    unsigned int o;
+
+    for (r = 0; r < TITLE_ROWS; ++r) {
+        o = (1 + r) * 40 + (40 - TITLE_COLS) / 2;
+        for (c = 0; c < TITLE_COLS; ++c, ++o) {
+            SCREEN[o] = title_logo[r][c];
+            COLORRAM[o] = shade[r];
+        }
+    }
+}
+
 static void title(void)
 {
     draw_sea();
     VIC.spr_ena = 0;
-    print_centered(4, "b a t t l e s h i p s", COLOR_WHITE);
+    draw_logo();
     print_centered(8, "player 1  joystick port 2", COLOR_YELLOW);
     print_centered(10, "player 2  joystick port 1", COLOR_LIGHTRED);
     print_centered(13, "joystick   aim", COLOR_WHITE);
