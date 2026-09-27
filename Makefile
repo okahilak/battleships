@@ -4,7 +4,8 @@
 #   make run PRG=hello
 #   make autoplay   run battleships with two bots playing (for testing)
 #   make play       play a SID tune in VSID (SID=song by default, SID=galway)
-#   make disk       pack all programs into build/disk.d64
+#   make disk       pack all programs into build/battleships.d64
+#   make t64        the game as a tape image, build/battleships.t64
 #   make clean
 
 BUILD   := build
@@ -26,7 +27,7 @@ AFLAGS  := -t c64
 # asm programs link with the BASIC SYS stub
 ASM_LDFLAGS := -t c64 -C c64-asm.cfg -u __EXEHDR__
 
-.PHONY: all run autoplay play disk clean
+.PHONY: all run autoplay play disk t64 clean
 
 PRG     ?= battleships
 # keyboard-as-joystick: keyset 1 -> port 2 (player 1), keyset 2 -> port 1 (player 2)
@@ -112,10 +113,15 @@ SID     ?= song
 play: $(BUILD)/$(SID).sid
 	vsid $(SOUNDOPTS) $< >/dev/null 2>&1 &
 
-disk: $(BUILD)/disk.d64
+disk: $(BUILD)/battleships.d64
 
-$(BUILD)/disk.d64: $(PRGS)
+$(BUILD)/battleships.d64: $(PRGS)
 	$(C1541) -format "battleships,01" d64 $@ $(foreach p,$(PRGS),-write $(p) $(basename $(notdir $(p)))) >/dev/null
+
+t64: $(BUILD)/battleships.t64
+
+$(BUILD)/battleships.t64: $(BUILD)/battleships.prg tools/mk_t64.py
+	python3 tools/mk_t64.py $@ BATTLESHIPS $<
 
 # -moncommands loads labels so VICE's monitor (Alt+H) shows your symbol names
 run: $(BUILD)/$(PRG).prg

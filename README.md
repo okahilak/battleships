@@ -9,7 +9,8 @@ make                  # build everything into build/
 make run              # battleships (PRG=hello, border, song, galway)
 make autoplay         # battleships, bots vs bots
 make play             # song.sid in VSID (SID=galway)
-make disk             # build/disk.d64
+make disk             # build/battleships.d64
+make t64              # build/battleships.t64
 make run AUDIO="MacBook Air Speakers"   # pick an output device
 ```
 
