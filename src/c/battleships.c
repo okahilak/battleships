@@ -5,7 +5,7 @@
  *   Player 2 (red, starts right):    joystick in port 1
  *
  *   joystick           move your crosshair (the ship keeps its course)
- *   fire + left/right  turn the ship (8 headings)
+ *   fire + left/right  turn the ship (10-degree steps)
  *   fire + up          engines ahead (ships are heavy: they speed up, slow
  *                      down and change course slowly, and drift in turns)
  *   fire + down        engines astern / brake
@@ -20,6 +20,8 @@
 #include <c64.h>
 #include <string.h>
 
+#include "ship_sprites.h"         /* generated: ship frames and heading tables */
+
 /* The VIC-II looks at bank 2 ($8000-$BFFF): screen at $8000, sprite graphics
    from $8400, character ROM visible at $9000. That leaves $0801-$7FFF for the
    program; main() checks it ends below $8000. */
@@ -31,13 +33,13 @@
 #define SPRCOLOR    (&VIC.spr0_color)
 
 #define SPRDATA     ((unsigned char *)0x8400)
-#define BLK_SHIP    ((0x8400 - VIC_BANK) / 64)  /* 8 frames, one per heading */
-#define BLK_SHELL   (BLK_SHIP + 8)      /* 4 frames, small to large */
+#define BLK_SHIP    ((0x8400 - VIC_BANK) / 64)  /* HEADINGS frames */
+#define BLK_SHELL   (BLK_SHIP + HEADINGS)       /* 4 frames, small to large */
 #define SHELL_SIZES 4
-#define BLK_BOOM    (BLK_SHIP + 12)
-#define BLK_AIM     (BLK_SHIP + 13)
-#define BLK_SPLASH  (BLK_SHIP + 14)
-#define SPR_BLOCKS  15
+#define BLK_BOOM    (BLK_SHELL + SHELL_SIZES)
+#define BLK_AIM     (BLK_BOOM + 1)
+#define BLK_SPLASH  (BLK_AIM + 1)
+#define SPR_BLOCKS  (BLK_SPLASH + 1 - BLK_SHIP)
 #define BLOCK_DATA(b) (SPRDATA + ((b) - BLK_SHIP) * 64)
 
 /* Sprite numbers; lower numbers are drawn on top. */
@@ -58,34 +60,15 @@
 #define MAX_HP      5
 /* Ship physics. Velocity is in 1/256 pixel per frame. */
 #define MAX_SPEED   192                 /* 0.75 pixels per frame */
-#define THRUST_MASK 7                   /* engine push every 8th frame */
+#define THRUST_MASK 15                  /* engine push (head_x/y) every 16th frame */
 #define DRAG_MASK   3                   /* water drag every 4th frame, v -= v/32 */
-#define TURN_DELAY  16                  /* frames between heading steps */
+#define TURN_DELAY  5                   /* frames per 10-degree heading step */
 #define RELOAD      30                  /* frames between shots */
 #define SHELLS_PER  2                   /* shells in flight per player */
 #define AIM_SPEED   2                   /* crosshair pixels per frame */
 #define AIM_AHEAD   64                  /* crosshair start distance from ship */
 #define HIT_RANGE   10                  /* pixels from ship centre that count as a hit */
 #define SPLASH_TIME 20                  /* frames the impact stays visible */
-
-/* Heading 0 = east, then clockwise in steps of 45 degrees (screen y points down). */
-static const signed char head_x[8] = { 16, 11, 0, -11, -16, -11, 0, 11 };   /* x16 */
-static const int rot_x[8] = { 256, 181, 0, -181, -256, -181, 0, 181 };      /* x256 */
-static const signed char bow_x[8] = { 9, 6, 0, -6, -9, -6, 0, 6 };          /* pixels */
-#define HEAD_Y(d)   head_x[((d) + 6) & 7]
-#define ROT_Y(d)    rot_x[((d) + 6) & 7]
-#define BOW_Y(d)    bow_x[((d) + 6) & 7]
-
-/* East-facing hull, rows 7..13 of a 21x21 box centred on (10,10). */
-static const char *const hull[7] = {
-    "..###########........",
-    ".###############.....",
-    "####.##.#####.#####..",
-    "###...#...#...#######",
-    "####.##.#####.#####..",
-    ".###############.....",
-    "..###########........",
-};
 
 typedef struct {
     int x, y;                   /* centre, 1/16 pixel */
@@ -235,40 +218,17 @@ static void draw_hud(void)
 /* ------------------------------------------------------------------ */
 /* Sprites                                                            */
 
-static unsigned char hull_pixel(int u, int v)
-{
-    if (u < 0 || u > 20 || v < 7 || v > 13) {
-        return 0;
-    }
-    return hull[v - 7][u] == '#';
-}
-
-/* Build the 8 ship headings by rotating the east-facing hull. */
 static void make_sprites(void)
 {
     unsigned char d, x, y;
-    int c, s, u, v;
+    int c, u, v;
     unsigned char *p;
 
     memset(SPRDATA, 0, 64 * SPR_BLOCKS);
 
-    for (d = 0; d < 8; ++d) {
-        c = rot_x[d];
-        s = ROT_Y(d);
-        p = SPRDATA + d * 64;
-        for (y = 0; y < 21; ++y) {
-            /* hull coords of pixel (x,y): u = dx*c + dy*s, v = dy*c - dx*s,
-               stepped incrementally along the row (fixed point x256) */
-            u = -10 * c + ((int)y - 10) * s + 10 * 256 + 128;
-            v = ((int)y - 10) * c + 10 * s + 10 * 256 + 128;
-            for (x = 0; x < 21; ++x) {
-                if (u >= 0 && v >= 0 && hull_pixel(u >> 8, v >> 8)) {
-                    p[y * 3 + (x >> 3)] |= 0x80 >> (x & 7);
-                }
-                u += c;
-                v -= s;
-            }
-        }
+    /* ship headings, pre-rotated by tools/gen_ship_sprites.py */
+    for (d = 0; d < HEADINGS; ++d) {
+        memcpy(SPRDATA + d * 64, ship_frames + d * 63, 63);
     }
 
     /* shell: discs of radius 1..4 around (5,5); bigger = higher up */
@@ -407,17 +367,14 @@ static unsigned char bot_phase[2];
 
 static unsigned char bot(unsigned char me)
 {
-    static const unsigned char dir_to[9] = { 5, 6, 7, 4, 0xFF, 0, 3, 2, 1 };
     ship_t *s = &ships[me];
     ship_t *t = &ships[me ^ 1];
     int dx = (t->x >> 4) - (s->x >> 4);
     int dy = (t->y >> 4) - (s->y >> 4);
     int ax = dx < 0 ? -dx : dx;
     int ay = dy < 0 ? -dy : dy;
-    signed char sx = dx < 0 ? -1 : 1;
-    signed char sy = dy < 0 ? -1 : 1;
-    unsigned char want, diff, joy = 0;
-    int ex, ey, lead;
+    unsigned char d, want, diff, joy = 0;
+    int ex, ey, lead, dot, best;
 
     switch (bot_phase[me]) {
     case 1:                             /* fire released: move crosshair onto target */
@@ -443,15 +400,22 @@ static unsigned char bot(unsigned char me)
     if (s->reload == 0 && (frame & 31) == me * 16) {
         bot_phase[me] = 1;
     }
-    if (ax * 2 < ay) sx = 0;
-    if (ay * 2 < ax) sy = 0;
-    want = dir_to[(sy + 1) * 3 + sx + 1];
-    if (((frame + me * 128) & 255) >= 160) {
-        want = (want + 2 + me * 4) & 7;     /* wander off to get around islands */
+    /* heading that points most toward the target */
+    want = 0;
+    best = -32767;
+    for (d = 0; d < HEADINGS; ++d) {
+        dot = head_x[d] * dx + head_y[d] * dy;
+        if (dot > best) {
+            best = dot;
+            want = d;
+        }
     }
-    diff = (want - s->dir) & 7;
+    if (((frame + me * 128) & 255) >= 160) {
+        want = (want + HEADINGS / 4 + me * HEADINGS / 2) % HEADINGS;  /* wander off */
+    }
+    diff = (want + HEADINGS - s->dir) % HEADINGS;
     if (diff != 0) {
-        joy |= diff < 4 ? JOY_RIGHT : JOY_LEFT;
+        joy |= diff <= HEADINGS / 2 ? JOY_RIGHT : JOY_LEFT;
     }
     if (ax + ay > 50 || diff != 0) {
         joy |= JOY_UP;
@@ -515,7 +479,7 @@ static unsigned char ship_contact(int x, int y, unsigned char d)
     int px = x >> 4;
     int py = y >> 4;
     int bx = bow_x[d];
-    int by = BOW_Y(d);
+    int by = bow_y[d];
 
     if (off_sea(px, py) || off_sea(px + bx, py + by) || off_sea(px - bx, py - by)) {
         return CONTACT_EDGE;
@@ -551,7 +515,7 @@ static void fire(unsigned char p)
         b = &shells[i];
         if (b->state == SHELL_FREE) {
             sx = (s->x >> 4) + bow_x[s->dir];
-            sy = (s->y >> 4) + BOW_Y(s->dir);
+            sy = (s->y >> 4) + bow_y[s->dir];
             ax = iabs(s->aim_x - sx);
             ay = iabs(s->aim_y - sy);
             /* flight time grows with distance (approximate length) */
@@ -646,7 +610,7 @@ static void move_ship(unsigned char p)
 
     if (joy & (JOY_LEFT | JOY_RIGHT)) {
         if (s->turn_wait == 0) {
-            s->dir = (s->dir + ((joy & JOY_RIGHT) ? 1 : 7)) & 7;
+            s->dir = (s->dir + ((joy & JOY_RIGHT) ? 1 : HEADINGS - 1)) % HEADINGS;
             s->turn_wait = TURN_DELAY;
         } else {
             --s->turn_wait;
@@ -660,10 +624,10 @@ static void move_ship(unsigned char p)
     if ((frame & THRUST_MASK) == 0) {
         if (joy & JOY_UP) {
             s->vx += head_x[s->dir];
-            s->vy += HEAD_Y(s->dir);
+            s->vy += head_y[s->dir];
         } else if (joy & JOY_DOWN) {
             s->vx -= head_x[s->dir];
-            s->vy -= HEAD_Y(s->dir);
+            s->vy -= head_y[s->dir];
         }
     }
     if ((frame & DRAG_MASK) == 0) {
@@ -766,7 +730,7 @@ static void new_round(void)
     memset(shells, 0, sizeof(shells));
 
     ships[0].x = 32 * 16;  ships[0].y = 104 * 16; ships[0].dir = 0;
-    ships[1].x = 287 * 16; ships[1].y = 104 * 16; ships[1].dir = 4;
+    ships[1].x = 287 * 16; ships[1].y = 104 * 16; ships[1].dir = HEADINGS / 2;
     ships[0].hp = ships[1].hp = MAX_HP;
     ships[0].color = COLOR_YELLOW;
     ships[1].color = COLOR_LIGHTRED;

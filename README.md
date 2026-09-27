@@ -44,11 +44,13 @@ A real-time naval duel for two players, seen from above ([src/c/battleships.c](s
 | Keyboard in VICE (`make run`) | W A S D + Space | I J K L + Return |
 
 - Moving the joystick (no button) moves your crosshair (X). The ship keeps its course meanwhile.
-- Holding fire makes the joystick steer. Left/right turns the ship; up runs the engines ahead; down runs them astern to brake or reverse.
+- Holding fire makes the joystick steer. Left/right turns the ship in 10° steps; up runs the engines ahead; down runs them astern to brake or reverse.
 - Ships are heavy, as in Beach-Head. They take a few seconds to get up to speed and glide for a while when the engines stop. After a turn they keep drifting on their old course until the engines swing them around.
 - Tapping fire (without moving) fires a shell toward the crosshair. It flies in an arc, looking bigger the higher it is, and lands after a delay that grows with distance, so aim where the enemy will be. It damages any ship within range of the landing point, including your own.
 
 The keyboard mapping lives in [vice/keys.cfg](vice/keys.cfg).
+
+The 36 ship images (one every 10°) are pre-rotated by [tools/gen_ship_sprites.py](tools/gen_ship_sprites.py). The script writes `src/c/ship_sprites.h`, and `make` reruns it when the script changes. To reshape the ship, edit `HULL` in the script; `--preview sheet.png` draws every heading into one image.
 
 "Neon Tide" plays throughout. Sound effects borrow the song's arpeggio voice (voice 2) while they play, and the bass/drums and lead continue. The interrupt driver is [src/music/sound.s](src/music/sound.s).
 
