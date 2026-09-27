@@ -84,7 +84,7 @@
 #define MAX_REVERSE 72                  /* astern */
 #define SPEED_STEP  2                   /* max speed change per tick toward the setpoint */
 #define SPEED_LAG   4                   /* speed closes gap / 2^SPEED_LAG per tick */
-#define SET_STEP    40                  /* setpoint change per tick while fire+up/down */
+#define SET_STEP    12                  /* setpoint change per tick while fire+up/down: full slider in ~1 s */
 
 /* Engine slider on the bottom row: 17 cells from full astern to full ahead. */
 #define SLIDER_ROW   24
