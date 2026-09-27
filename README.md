@@ -1,6 +1,6 @@
-# c64
+# Battleships
 
-C64 stuff built with cc65 and run in VICE (`brew install cc65 vice`).
+Two-player naval duel for the Commodore 64, built with cc65 and run in VICE (`brew install cc65 vice`).
 
 ```sh
 make                  # build everything into build/
@@ -13,9 +13,9 @@ make run AUDIO="MacBook Air Speakers"   # pick an output device
 
 `src/c/*.c` and `src/asm/*.s` each become `build/<name>.prg`. `make run` loads labels into the VICE monitor (Alt+H).
 
-## Battleships
+## Playing
 
-Two-player naval duel, top view. P1 (yellow) uses port 2 or W/A/S/D + Space, P2 (red) port 1 or I/J/K/L + Return ([vice/keys.cfg](vice/keys.cfg)).
+Top view. P1 (yellow) uses port 2 or W/A/S/D + Space, P2 (red) port 1 or I/J/K/L + Return ([vice/keys.cfg](vice/keys.cfg)).
 
 - Stick: move crosshair.
 - Fire + left/right: rudder hard over (stays until changed). Fire + up: centre rudder, or if straight, more speed. Fire + down: less speed/astern. Speed follows the slider on the bottom row with a lag.

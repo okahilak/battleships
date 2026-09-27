@@ -1,4 +1,4 @@
-# C64 project
+# Battleships (C64)
 
 - Build with `make`. Output lands in `build/` (object files in `build/obj/`, mirroring `src/`; nothing is written into `src/`). Each file in `src/c/*.c` or `src/asm/*.s` becomes `build/<name>.prg`.
 - Toolchain is cc65 (target `-t c64`). Assembly uses **ca65 syntax** and links with `-C c64-asm.cfg -u __EXEHDR__`, which adds the BASIC SYS stub.

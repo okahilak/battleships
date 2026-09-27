@@ -1,4 +1,4 @@
-# C64 build: cc65 toolchain + VICE emulator
+# Battleships (C64) build: cc65 toolchain + VICE emulator
 #   make            build every program into build/
 #   make run        build and run a program in VICE (PRG=battleships by default)
 #   make run PRG=hello
@@ -115,7 +115,7 @@ play: $(BUILD)/$(SID).sid
 disk: $(BUILD)/disk.d64
 
 $(BUILD)/disk.d64: $(PRGS)
-	$(C1541) -format "c64dev,01" d64 $@ $(foreach p,$(PRGS),-write $(p) $(basename $(notdir $(p)))) >/dev/null
+	$(C1541) -format "battleships,01" d64 $@ $(foreach p,$(PRGS),-write $(p) $(basename $(notdir $(p)))) >/dev/null
 
 # -moncommands loads labels so VICE's monitor (Alt+H) shows your symbol names
 run: $(BUILD)/$(PRG).prg
