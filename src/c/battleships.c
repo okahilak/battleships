@@ -21,7 +21,7 @@
  * Every round has a new random map with a random amount of land.
  * Each map hides 1-2 icebergs: they only show up when a ship is within one
  * tile, and ramming one costs a heart (the iceberg breaks up).
- * Each ship takes 3 hits. A ship that runs aground on an island is wrecked
+ * Each ship takes 3 hits. Ramming the other ship costs both a heart. A ship that runs aground on an island is wrecked
  * at once. The screen edges just stop it.
  *
  * Build with -DAUTOPLAY to let two simple bots play (used for testing).
@@ -883,15 +883,22 @@ static void move_ship(unsigned char p)
     }
 }
 
-static void hit(unsigned char p)
+/* One heart lost: flash, sound, HUD. */
+static void damage(unsigned char p)
 {
     ship_t *s = &ships[p];
 
     if (s->hp) --s->hp;
     s->flash = 16;
-    s->speed /= 2;
     sfx_play(SFX_HIT);
     draw_hud();
+}
+
+/* Shell or iceberg: a heart, and the blow takes half the speed. */
+static void hit(unsigned char p)
+{
+    damage(p);
+    ships[p].speed /= 2;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1043,14 +1050,23 @@ static void move_shells(void)
     }
 }
 
-static void ships_collide(int ox0, int oy0, int ox1, int oy1)
+static unsigned char ships_touching;
+
+/* Ramming: when the ships first touch, each loses a heart; they keep their
+   course and speed and can sail on through each other. */
+static void ships_collide(void)
 {
     int dx = (ships[0].x >> 4) - (ships[1].x >> 4);
     int dy = (ships[0].y >> 4) - (ships[1].y >> 4);
 
     if (dx > -14 && dx < 14 && dy > -14 && dy < 14) {
-        ships[0].x = ox0; ships[0].y = oy0; ships[0].speed = 0;
-        ships[1].x = ox1; ships[1].y = oy1; ships[1].speed = 0;
+        if (!ships_touching) {
+            damage(0);
+            damage(1);
+            ships_touching = 1;
+        }
+    } else {
+        ships_touching = 0;
     }
 }
 
@@ -1090,18 +1106,16 @@ static void new_round(void)
 /* Plays one round, returns the winner (0 or 1) or DRAW if both ships sank. */
 static unsigned char play_round(void)
 {
-    int ox0, oy0, ox1, oy1;
     unsigned char k, t, lost = 0;
 
     new_round();
+    ships_touching = 0;
     while (ships[0].hp && ships[1].hp) {
         wait_frame();
         update_sprites();
-        ox0 = ships[0].x; oy0 = ships[0].y;
-        ox1 = ships[1].x; oy1 = ships[1].y;
         move_ship(0);
         move_ship(1);
-        ships_collide(ox0, oy0, ox1, oy1);
+        ships_collide();
         update_icebergs();
         move_shells();
     }
