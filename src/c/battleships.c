@@ -68,7 +68,7 @@
 #define MAX_SPEED   192                 /* ahead: 0.75 pixels per frame */
 #define MAX_REVERSE 64                  /* astern */
 #define SPEED_STEP  3                   /* max speed change per frame toward the setpoint */
-#define SET_STEP    6                   /* setpoint change per frame while fire+up/down */
+#define SET_STEP    18                  /* setpoint change per frame while fire+up/down */
 
 /* Engine slider on the bottom row: 17 cells from full astern to full ahead. */
 #define SLIDER_ROW   24
