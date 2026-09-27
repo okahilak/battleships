@@ -27,9 +27,11 @@
 #include <string.h>
 
 #include "ship_sprites.h"         /* generated: ship frames and heading tables */
+#include "charset.h"              /* generated: custom character set */
 
 /* The VIC-II looks at bank 2 ($8000-$BFFF): screen at $8000, sprite graphics
-   from $8400, character ROM visible at $9000. That leaves $0801-$7FFF for the
+   from $8400, custom character set at $A000 (RAM under BASIC ROM: the CPU
+   writes it, the VIC reads it). That leaves $0801-$7FFF for the
    program; main() checks it ends below $8000. */
 #define VIC_BANK    0x8000
 #define SCREEN      ((unsigned char *)0x8000)
@@ -39,6 +41,7 @@
 #define SPRCOLOR    (&VIC.spr0_color)
 
 #define SPRDATA     ((unsigned char *)0x8400)
+#define CHARSET     ((unsigned char *)0xA000)
 #define BLK_SHIP    ((0x8400 - VIC_BANK) / 64)  /* HEADINGS frames */
 #define BLK_SHELL   (BLK_SHIP + HEADINGS)       /* 4 frames, small to large */
 #define SHELL_SIZES 4
@@ -995,7 +998,8 @@ int main(void)
     unsigned char w;
 
     CIA2.pra = (CIA2.pra & 0xFC) | 0x01; /* VIC bank 2 ($8000-$BFFF) */
-    VIC.addr = 0x04;                    /* screen +$0000, uppercase/graphics charset +$1000 */
+    memcpy(CHARSET, charset_data, sizeof(charset_data));
+    VIC.addr = 0x08;                    /* screen +$0000, charset +$2000 ($A000) */
     VIC.bordercolor = COLOR_BLACK;
     VIC.bgcolor0 = COLOR_BLUE;
     draw_sea();                         /* the new screen RAM holds garbage */

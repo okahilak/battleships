@@ -54,6 +54,8 @@ The keyboard mapping lives in [vice/keys.cfg](vice/keys.cfg).
 
 The 36 ship images (one every 10°) are pre-rotated by [tools/gen_ship_sprites.py](tools/gen_ship_sprites.py). The script writes `src/c/ship_sprites.h`, and `make` reruns it when the script changes. To reshape the ship, edit `HULL` in the script; `--preview sheet.png` draws every heading into one image.
 
+The font and graphics characters (islands, waves, hearts, ammo, markers, slider) are a custom character set from [tools/gen_charset.py](tools/gen_charset.py). The script writes `src/c/charset.h`, and the game copies it to $A000 at startup. The glyphs keep the standard C64 screen codes, so editing a pattern in the script changes that character everywhere.
+
 "Neon Tide" plays throughout. Sound effects borrow the song's arpeggio voice (voice 2) while they play, and the bass/drums and lead continue. The interrupt driver is [src/music/sound.s](src/music/sound.s).
 
 ## Music
