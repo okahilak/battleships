@@ -499,8 +499,9 @@ static unsigned char song;
 
 #define SFX_SPLASH  0
 #define SFX_SHOT    1
-#define SFX_HIT     2
-#define SFX_SINK    3
+#define SFX_ICE     2                   /* beep beep beep */
+#define SFX_HIT     3
+#define SFX_SINK    4
 
 /* ------------------------------------------------------------------ */
 /* Input                                                              */
@@ -966,6 +967,9 @@ static void show_iceberg(iceberg_t *ice, unsigned char show)
     SCREEN[o] = show ? ICE_CHAR : sea_char(ice->col, ice->row);
     COLORRAM[o] = show ? COLOR_WHITE : COLOR_LIGHTBLUE;
     ice->shown = show;
+    if (show) {
+        sfx_play(SFX_ICE);              /* iceberg warning */
+    }
 }
 
 /* Reveals icebergs next to a ship, hides them again when it leaves, and

@@ -24,13 +24,16 @@ VOICEBIT = 2                    ; voice 2 in music_mute
 IRQLINE  = 0                    ; raster line of the interrupt
 
 .segment "RODATA"
-; effect:       splash shot   hit    sink
-sfx_wave:  .byte $81,   $81,   $81,   $81
-sfx_ad:    .byte $09,   $08,   $0a,   $0c
-sfx_sr:    .byte $00,   $00,   $00,   $00
-sfx_freq:  .byte $18,   $30,   $12,   $0c   ; start frequency (high byte)
-sfx_delta: .byte $ff,   $fe,   $ff,   $00   ; frequency change per frame (signed)
-sfx_len:   .byte 16,    12,    26,    80    ; frames
+; effect:       splash shot   ice    hit    sink
+sfx_wave:  .byte $81,   $81,   $41,   $81,   $81
+sfx_ad:    .byte $09,   $08,   $00,   $0a,   $0c
+sfx_sr:    .byte $00,   $00,   $f0,   $00,   $00
+sfx_freq:  .byte $18,   $30,   $40,   $12,   $0c   ; start frequency (high byte)
+sfx_delta: .byte $ff,   $fe,   $00,   $ff,   $00   ; frequency change per frame (signed)
+sfx_len:   .byte 16,    12,    47,    26,    80    ; frames
+sfx_gate:  .byte 0,     0,     8,     0,     0     ; nonzero: gate on only while
+                                                   ; (frames left & mask) != 0,
+                                                   ; e.g. 8 = 3 beeps in 47 frames
 SFX_COUNT = * - sfx_len
 
 .segment "RODATA"
@@ -43,6 +46,7 @@ music_on:  .res 1               ; 0 = music off
 pending:   .res 1               ; requested effect, $ff = none
 current:   .res 1               ; playing effect, $ff = none
 timer:     .res 1
+tmpgate:   .res 1
 freq:      .res 1
 
 .segment "CODE"
@@ -160,7 +164,17 @@ sfx_tick:
         beq @done
         dec timer
         beq @stop
-        lda sfx_delta,x         ; sweep the pitch, clamped to 1..255
+        lda sfx_gate,x          ; beeping effects switch the gate on and off
+        beq @sweep
+        and timer               ; nonzero: gate on
+        beq :+
+        lda #1
+:       sta tmpgate
+        lda sfx_wave,x
+        and #$fe
+        ora tmpgate
+        sta VOICE+4
+@sweep: lda sfx_delta,x         ; sweep the pitch, clamped to 1..255
         beq @done
         bmi @down
         clc

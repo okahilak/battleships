@@ -37,7 +37,7 @@ make clean
 
 ## Battleships
 
-A real-time naval duel for two players, seen from above ([src/c/battleships.c](src/c/battleships.c)). Each ship survives 3 hits. Ramming the other ship costs each ship a heart, and both carry on along their course; the first to sink the other wins the round. A ship that runs aground on an island is wrecked at once (the screen edges just stop it). Shells fly over islands. Every round has a new random map with a random amount of land, from a few small islands to crowded archipelagos, mirrored left to right so both sides are equal. Each map also hides 1–2 icebergs. One only shows up while a ship is within one tile of it, and ramming it costs a heart (the iceberg breaks up).
+A real-time naval duel for two players, seen from above ([src/c/battleships.c](src/c/battleships.c)). Each ship survives 3 hits. Ramming the other ship costs each ship a heart, and both carry on along their course; the first to sink the other wins the round. A ship that runs aground on an island is wrecked at once (the screen edges just stop it). Shells fly over islands. Every round has a new random map with a random amount of land, from a few small islands to crowded archipelagos, mirrored left to right so both sides are equal. Each map also hides 1–2 icebergs. One only shows up while a ship is within one tile of it (with a beep-beep-beep warning), and ramming it costs a heart (the iceberg breaks up).
 
 | | Player 1 (yellow) | Player 2 (red) |
 |---|---|---|
