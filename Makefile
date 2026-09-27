@@ -3,7 +3,7 @@
 #   make run        build and run a program in VICE (PRG=battleships by default)
 #   make run PRG=hello
 #   make autoplay   run battleships with two bots playing (for testing)
-#   make play       play the SID tune (build/song.sid) in VSID
+#   make play       play a SID tune in VSID (SID=song by default, SID=galway)
 #   make disk       pack all programs into build/disk.d64
 #   make clean
 
@@ -16,7 +16,7 @@ C_SRCS   := $(wildcard src/c/*.c)
 ASM_SRCS := $(wildcard src/asm/*.s)
 C_PRGS   := $(patsubst src/c/%.c,$(BUILD)/%.prg,$(C_SRCS))
 ASM_PRGS := $(patsubst src/asm/%.s,$(BUILD)/%.prg,$(ASM_SRCS))
-PRGS     := $(C_PRGS) $(ASM_PRGS) $(BUILD)/song.prg
+PRGS     := $(C_PRGS) $(ASM_PRGS) $(BUILD)/song.prg $(BUILD)/galway.prg
 
 OBJ     := $(BUILD)/obj
 
@@ -36,7 +36,7 @@ ifneq ($(AUDIO),)
 SOUNDOPTS := -sounddev coreaudio -soundarg "$(AUDIO)"
 endif
 
-all: $(PRGS) $(BUILD)/song.sid
+all: $(PRGS) $(BUILD)/song.sid $(BUILD)/galway.sid
 
 # Object files go under build/obj/, mirroring src/, so src/ stays clean.
 # .SECONDARY keeps make from deleting them as intermediates.
@@ -59,7 +59,7 @@ $(BUILD)/%.prg: $(OBJ)/asm/%.o
 # Music: src/music/player.s (driver) + song.s (data), linked two ways:
 #   song.prg  C64 program that plays the tune from a raster interrupt
 #   song.sid  PSID file for SID players (player at $$1000)
-MUSIC_DEPS := src/music/player.s src/music/song.s src/music/notes.inc src/music/freqtable.inc
+MUSIC_DEPS := src/music/player.s src/music/notes.inc src/music/freqtable.inc
 MUSIC_OBJS := $(OBJ)/music/player.o $(OBJ)/music/song.o
 
 $(OBJ)/music/%.o: src/music/%.s $(MUSIC_DEPS)
@@ -74,6 +74,17 @@ $(BUILD)/song.prg: $(OBJ)/music/demo.o $(MUSIC_OBJS)
 	ld65 -C c64-asm.cfg -u __EXEHDR__ -m $(BUILD)/song.map -Ln $(BUILD)/song.lbl -o $@ $^ c64.lib
 
 $(BUILD)/song.sid: $(OBJ)/music/sidheader.o $(MUSIC_OBJS) src/music/sid.cfg
+	ld65 -C src/music/sid.cfg -o $@ $(filter %.o,$^)
+
+# Second tune (Martin Galway style): same player, own song data and header
+$(OBJ)/music/sidheader-galway.o: src/music/sidheader.s
+	@mkdir -p $(@D)
+	ca65 -t none -D SONG_GALWAY -o $@ $<
+
+$(BUILD)/galway.prg: $(OBJ)/music/demo.o $(OBJ)/music/player.o $(OBJ)/music/galway.o
+	ld65 -C c64-asm.cfg -u __EXEHDR__ -m $(BUILD)/galway.map -Ln $(BUILD)/galway.lbl -o $@ $^ c64.lib
+
+$(BUILD)/galway.sid: $(OBJ)/music/sidheader-galway.o $(OBJ)/music/player.o $(OBJ)/music/galway.o src/music/sid.cfg
 	ld65 -C src/music/sid.cfg -o $@ $(filter %.o,$^)
 
 # battleships links the music player, song and sound-effect interrupt
@@ -92,7 +103,8 @@ $(OBJ)/c/battleships.o $(OBJ)/c/battleships-auto.o: src/c/ship_sprites.h src/c/c
 $(BUILD)/battleships.prg: $(OBJ)/c/battleships.o $(GAME_SOUND)
 	$(CL65) -t c64 -m $(BUILD)/battleships.map -Ln $(BUILD)/battleships.lbl -o $@ $^
 
-play: $(BUILD)/song.sid
+SID     ?= song
+play: $(BUILD)/$(SID).sid
 	vsid $(SOUNDOPTS) $< >/dev/null 2>&1 &
 
 disk: $(BUILD)/disk.d64

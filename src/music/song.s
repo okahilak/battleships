@@ -14,7 +14,7 @@
         .export pat_lo, pat_hi
         .export ins_ad, ins_sr, ins_wave, ins_pw, ins_pwspd
         .export ins_vibdepth, ins_vibdelay, ins_vibspeed, ins_filt, ins_fsweep
-        .export wt_wave, wt_note
+        .export wt_wave, wt_note, song_text
 
 REST = $60
 TIE  = $61
@@ -319,3 +319,13 @@ p_hats:                                         ; 10: intro hi-hats
         DUR 2
         .byte C5, C5, C5, C5, C5, C5, C5, C5
         .byte END
+
+; Title screen text for demo.s (PETSCII, 0-terminated, < 256 bytes)
+song_text:   .byte $93, $05, 13, 13
+        .byte "             neon tide", 13, 13
+        .byte $9e, "      a sid tune in the style of", 13
+        .byte "             jeroen tel", 13, 13, 13
+        .byte $9f, "  voice 1  bass + drums, filter pluck", 13
+        .byte "  voice 2  1-frame arpeggios, pwm", 13
+        .byte "  voice 3  lead: vibrato, slides", 13, 13
+        .byte $98, "  grey border = player cpu time", 0

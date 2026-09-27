@@ -1,12 +1,12 @@
 ; Plays the song from a raster interrupt. The border shows the player's
 ; CPU time per frame.
 
-        .import music_init, music_play
+        .import music_init, music_play, song_text
 
 .segment "CODE"
 start:
         ldx #0
-@print: lda text,x
+@print: lda song_text,x
         beq @go
         jsr $ffd2               ; CHROUT
         inx
@@ -41,13 +41,3 @@ irq:    asl $d019               ; acknowledge
         jmp $ea81               ; restore registers, rti
 
 COLOR_RASTER = 11
-
-.segment "RODATA"
-text:   .byte $93, $05, 13, 13
-        .byte "             neon tide", 13, 13
-        .byte $9e, "      a sid tune in the style of", 13
-        .byte "             jeroen tel", 13, 13, 13
-        .byte $9f, "  voice 1  bass + drums, filter pluck", 13
-        .byte "  voice 2  1-frame arpeggios, pwm", 13
-        .byte "  voice 3  lead: vibrato, slides", 13, 13
-        .byte $98, "  grey border = player cpu time", 0

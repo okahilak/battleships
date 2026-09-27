@@ -30,6 +30,7 @@ make run PRG=hello    # run any other program, e.g. hello or border
 make autoplay         # battleships with two bots playing (quick test)
 make run PRG=song     # play the SID tune on the C64
 make play             # play build/song.sid in VSID (VICE's SID player)
+make play SID=galway  # play the second tune
 make disk             # pack all programs into build/disk.d64
 make clean
 ```
@@ -70,6 +71,14 @@ The driver is [src/music/player.s](src/music/player.s). Its header comment docum
 
 - `build/song.sid`: a PSID file (player at $1000, init $1000, play $1003) for VSID, SIDPlay and similar players.
 - `build/song.prg`: a C64 program that plays the tune from a raster interrupt. The grey band in the top border shows how much CPU time the player uses each frame.
+
+A second original tune, "Moonlit Harbour" ([src/music/galway.s](src/music/galway.s)), is in the style of Martin Galway. It is in A minor at 125 BPM:
+
+- Voice 1 plays bass with a resonant filter that opens on every note, plus light drums.
+- Voice 2 plays soft chord arpeggios; in the B section it echoes the lead three rows later, quieter.
+- Voice 3 plays a singing lead with slow pulse-width sweep, delayed vibrato and slides.
+
+It builds to `build/galway.prg` and `build/galway.sid` (`make run PRG=galway`, `make play SID=galway`). Each song file carries its own title-screen text (`song_text`).
 
 To write your own tune, edit the patterns and order lists in `song.s`. Note names such as `D5` and `As4` (A-sharp/B-flat) come from `notes.inc`.
 

@@ -1,5 +1,6 @@
 ; PSID v2 header for build/song.sid (linked with sid.cfg, player at $1000).
 ; Header fields are big-endian; strings are plain ASCII (assemble with -t none).
+; Assemble with -D SONG_GALWAY for build/galway.sid.
 
         .import music_init, music_play
 
@@ -13,7 +14,11 @@
         .dbyt 1                 ; songs
         .dbyt 1                 ; start song
         .dword 0                ; speed: vertical blank (50 Hz)
+.ifdef SONG_GALWAY
+name:   .byte "Moonlit Harbour"
+.else
 name:   .byte "Neon Tide"
+.endif
         .res 32 - (* - name)
 author: .byte "okahilak"
         .res 32 - (* - author)
