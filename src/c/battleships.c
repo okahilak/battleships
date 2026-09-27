@@ -82,7 +82,10 @@
 #define SL_TRACK     64                 /* horizontal line */
 #define SL_ZERO      91                 /* cross: stop */
 #define SL_KNOB      90                 /* diamond: setpoint */
-#define TURN_DELAY  5                   /* frames per 10-degree heading step */
+/* Turning: TURN_RATE / TURN_COST heading steps per frame, i.e. one
+   10-degree step every 6.25 frames. */
+#define TURN_RATE   4
+#define TURN_COST   25
 #define FPS         50                  /* PAL frames per second */
 #define RELOAD      30                  /* frames between shots */
 #define MAGAZINE    3                   /* shots before a cooldown */
@@ -105,7 +108,7 @@ typedef struct {
     int vx, vy;                 /* resulting velocity, derived each frame */
     int rx, ry;                 /* sub-step remainder, 0..15 */
     unsigned char dir;
-    unsigned char turn_wait;
+    unsigned char turn_acc;     /* builds up to TURN_COST for the next step */
     signed char rudder;         /* -1 left, 0 straight, 1 right */
     unsigned char prev_dirs;    /* joystick directions last frame, for press edges */
     unsigned char up_centred;   /* this up press centred the rudder: no speed change */
@@ -773,14 +776,13 @@ static void move_ship(unsigned char p)
     }
 
     if (s->rudder) {
-        if (s->turn_wait == 0) {
+        s->turn_acc += TURN_RATE;
+        if (s->turn_acc >= TURN_COST) {
+            s->turn_acc -= TURN_COST;
             s->dir = (s->dir + (s->rudder > 0 ? 1 : HEADINGS - 1)) % HEADINGS;
-            s->turn_wait = TURN_DELAY;
-        } else {
-            --s->turn_wait;
         }
     } else {
-        s->turn_wait = 0;               /* next rudder turns immediately */
+        s->turn_acc = TURN_COST - TURN_RATE;    /* next rudder turns immediately */
     }
 
     /* fire + up/down moves the engine setting */
