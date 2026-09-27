@@ -3,6 +3,13 @@
 ; Assemble with -D SONG_GALWAY for build/galway.sid.
 
         .import music_init, music_play
+.ifdef SONG_GALWAY
+        .import galway_song
+        SONG = galway_song
+.else
+        .import neon_song
+        SONG = neon_song
+.endif
 
 .segment "SIDHEADER"
         .byte "PSID"
@@ -30,5 +37,8 @@ rel:    .byte "2026"
         .word $1000             ; load address (little-endian, start of data)
 
 .segment "SIDJMP"
-init:   jmp music_init
+init:   jmp start
 play:   jmp music_play
+start:  lda #<SONG
+        ldx #>SONG
+        jmp music_init

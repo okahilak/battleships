@@ -1,6 +1,7 @@
 ; Compact SID music driver (ca65 syntax).
 ;
-;   music_init   call once before playing
+;   music_init   A/X = song descriptor (low/high); call before playing,
+;                or again to switch songs (with interrupts off)
 ;   music_play   call once per frame (50 Hz)
 ;   music_mute   bit n set = voice n+1 keeps playing its part silently, so a
 ;                game can borrow that voice for sound effects
@@ -24,19 +25,22 @@
 ;       wt_note  $00-$7F added to the played note (arpeggios),
 ;                $80+n = absolute note n (drums)
 ;
-; Uses zero page $FB/$FC.
+; Song descriptor: .word addresses of, in this order:
+;   tempo byte, order_lo, order_hi, pat_lo, pat_hi, ins_ad, ins_sr, ins_wave,
+;   ins_pw, ins_pwspd, ins_vibdepth, ins_vibdelay, ins_vibspeed, ins_filt,
+;   ins_fsweep, wt_wave, wt_note, title text
+; music_init writes these into the table-reading instructions below (marked
+; "<- name"), so the player runs at full speed with any song.
+;
+; Uses zero page $FB-$FE.
 
         .export music_init, music_play, music_mute
-        .import song_tempo, song_order_lo, song_order_hi
-        .import pat_lo, pat_hi
-        .import ins_ad, ins_sr, ins_wave, ins_pw, ins_pwspd
-        .import ins_vibdepth, ins_vibdelay, ins_vibspeed, ins_filt, ins_fsweep
-        .import wt_wave, wt_note
 
 SID       = $d400
 MUTED_REGS = $19                ; offset of SID $d419-$d41f: read-only/unused,
                                 ; so writes of a muted voice go nowhere
 ptr       = $fb
+site      = $fd                 ; music_init: operand being patched
 HR_FRAMES = 2                   ; hard restart this many frames before a new note
 RESONANCE = $c0
 
@@ -81,50 +85,136 @@ music_mute: .res 1
 sidofs:     .byte 0, 7, 14
 vbit:       .byte 1, 2, 4
         .include "freqtable.inc"
+; Patch sites: operand address and descriptor offset (field * 2)
+site_lo:
+        .byte <sm_0
+        .byte <sm_1
+        .byte <sm_2
+        .byte <sm_3
+        .byte <sm_4
+        .byte <sm_5
+        .byte <sm_6
+        .byte <sm_7
+        .byte <sm_8
+        .byte <sm_9
+        .byte <sm_10
+        .byte <sm_11
+        .byte <sm_12
+        .byte <sm_13
+        .byte <sm_14
+        .byte <sm_15
+        .byte <sm_16
+        .byte <sm_17
+        .byte <sm_18
+        .byte <sm_19
+site_hi:
+        .byte >sm_0
+        .byte >sm_1
+        .byte >sm_2
+        .byte >sm_3
+        .byte >sm_4
+        .byte >sm_5
+        .byte >sm_6
+        .byte >sm_7
+        .byte >sm_8
+        .byte >sm_9
+        .byte >sm_10
+        .byte >sm_11
+        .byte >sm_12
+        .byte >sm_13
+        .byte >sm_14
+        .byte >sm_15
+        .byte >sm_16
+        .byte >sm_17
+        .byte >sm_18
+        .byte >sm_19
+site_field:
+        .byte  2          ; song_order_lo
+        .byte  4          ; song_order_hi
+        .byte  6          ; pat_lo
+        .byte  8          ; pat_hi
+        .byte  0          ; song_tempo
+        .byte 14          ; ins_wave
+        .byte 16          ; ins_pw
+        .byte 18          ; ins_pwspd
+        .byte 22          ; ins_vibdelay
+        .byte 24          ; ins_vibspeed
+        .byte 26          ; ins_filt
+        .byte 28          ; ins_fsweep
+        .byte 12          ; ins_sr
+        .byte 10          ; ins_ad
+        .byte 30          ; wt_wave
+        .byte 32          ; wt_note
+        .byte 30          ; wt_wave
+        .byte 32          ; wt_note
+        .byte 20          ; ins_vibdepth
+        .byte 24          ; ins_vibspeed
+NSITES = 20
+
 
 .segment "CODE"
 
 music_init:
+        sta ptr                 ; song descriptor
+        stx ptr+1
+        ldx #NSITES - 1
+music_init_patch: lda site_lo,x
+        sta site
+        lda site_hi,x
+        sta site+1
+        ldy site_field,x
+        lda (ptr),y
+        pha
+        iny
+        lda (ptr),y
+        ldy #1
+        sta (site),y
+        pla
+        dey
+        sta (site),y
+        dex
+        bpl music_init_patch
+
         lda #0
         sta music_mute
         ldx #vars_end - vars_start - 1
-@clr:   sta vars_start,x
+music_init_clr:   sta vars_start,x
         dex
-        bpl @clr
+        bpl music_init_clr
         ldx #$18
-@sid:   sta SID,x
+music_init_sid:   sta SID,x
         dex
-        bpl @sid
+        bpl music_init_sid
         ldx #2
-@voice: lda #1
+music_init_voice: lda #1
         sta v_count,x
         sta v_dur,x
         jsr next_pattern
         dex
-        bpl @voice
+        bpl music_init_voice
         rts
 
 music_play:
         ldx #2
-@voice: jsr do_voice
+music_play_voice: jsr do_voice
         dex
-        bpl @voice
+        bpl music_play_voice
 
         ; filter sweep, clamped to 0..255
         lda f_sweep
-        beq @fout
-        bmi @fneg
+        beq music_play_fout
+        bmi music_play_fneg
         clc
         adc f_cut
-        bcc @fset
+        bcc music_play_fset
         lda #$ff
-        bne @fset
-@fneg:  clc
+        bne music_play_fset
+music_play_fneg:  clc
         adc f_cut
-        bcs @fset
+        bcs music_play_fset
         lda #0
-@fset:  sta f_cut
-@fout:  lda #0
+music_play_fset:  sta f_cut
+music_play_fout:  lda #0
         sta SID+$15
         lda f_cut
         sta SID+$16
@@ -140,26 +230,26 @@ music_play:
 
 do_voice:
         dec v_count,x
-        bne @hr
+        bne do_voice_hr
         jsr read_events
-@hr:    lda v_count,x
+do_voice_hr:    lda v_count,x
         cmp #HR_FRAMES
-        bne @fx
+        bne do_voice_fx
         jsr peek_byte           ; is the next event a fresh note?
         cmp #$60                ; rest: gate goes off by itself
-        beq @fx
+        beq do_voice_fx
         cmp #$61                ; tie: keep sounding
-        beq @fx
+        beq do_voice_fx
         cmp #$ff
-        beq @dohr
+        beq do_voice_dohr
         cmp #$c0                ; slide: legato, no restart
-        bcs @fx
-@dohr:  jsr voice_regs
+        bcs do_voice_fx
+do_voice_dohr:  jsr voice_regs
         lda #0
         sta v_gate,x
         sta SID+5,y
         sta SID+6,y
-@fx:    jmp effects
+do_voice_fx:    jmp effects
 
 ; Y = SID register offset for voice X (or the dummy area when muted).
 voice_regs:
@@ -190,86 +280,91 @@ read_byte:
 
 ; Reads the order list until the next pattern starts.
 next_pattern:
-        lda song_order_lo,x
+sm_0 = * + 1
+        lda $ffff,x   ; <- song_order_lo
         sta ptr
-        lda song_order_hi,x
+sm_1 = * + 1
+        lda $ffff,x   ; <- song_order_hi
         sta ptr+1
-@next:  ldy v_ordpos,x
+next_pattern_next:  ldy v_ordpos,x
         lda (ptr),y
         iny
         cmp #$ff
-        bne @notjump
+        bne next_pattern_notjump
         lda (ptr),y
         sta v_ordpos,x
-        jmp @next
-@notjump:
+        jmp next_pattern_next
+next_pattern_notjump:
         pha
         tya
         sta v_ordpos,x
         pla
         cmp #$80
-        bcc @pattern
+        bcc next_pattern_pattern
         sec
         sbc #$a0
         sta v_trans,x
-        jmp @next
-@pattern:
+        jmp next_pattern_next
+next_pattern_pattern:
         tay
-        lda pat_lo,y
+sm_2 = * + 1
+        lda $ffff,y   ; <- pat_lo
         sta v_patlo,x
-        lda pat_hi,y
+sm_3 = * + 1
+        lda $ffff,y   ; <- pat_hi
         sta v_pathi,x
         rts
 
 ; Processes pattern bytes up to and including the next note/rest/tie.
 read_events:
-@next:  jsr read_byte
+read_events_next:  jsr read_byte
         cmp #$ff
-        bne @notend
+        bne read_events_notend
         jsr next_pattern
-        jmp @next
-@notend:
+        jmp read_events_next
+read_events_notend:
         cmp #$c0
-        bcc @notslide
+        bcc read_events_notslide
         jsr read_byte
         sta v_slpend,x
-        jmp @next
-@notslide:
+        jmp read_events_next
+read_events_notslide:
         cmp #$a0
-        bcc @notins
+        bcc read_events_notins
         and #$1f
         sta v_ins,x
-        jmp @next
-@notins:
+        jmp read_events_next
+read_events_notins:
         cmp #$80
-        bcc @event
+        bcc read_events_event
         and #$1f
         clc
         adc #1
         sta v_dur,x
-        jmp @next
+        jmp read_events_next
 
-@event: pha                     ; frames = rows * tempo
+read_events_event: pha                     ; frames = rows * tempo
         lda #0
         ldy v_dur,x
         clc
-@mul:   adc song_tempo
+sm_4 = * + 1
+read_events_mul:   adc $ffff   ; <- song_tempo
         dey
-        bne @mul
+        bne read_events_mul
         sta v_count,x
         pla
 
         cmp #$60
-        bne @notrest
+        bne read_events_notrest
         lda #0
         sta v_gate,x
         rts
-@notrest:
+read_events_notrest:
         cmp #$61
-        bne @note
+        bne read_events_note
         rts
 
-@note:  clc
+read_events_note:  clc
         adc v_trans,x
         sta tmp_note
         sta v_note,x
@@ -295,9 +390,11 @@ trigger:
         sta v_vofslo,x
         sta v_vofshi,x
         ldy v_ins,x
-        lda ins_wave,y
+sm_5 = * + 1
+        lda $ffff,y   ; <- ins_wave
         sta v_wpos,x
-        lda ins_pw,y            ; pulse width = value * 16
+sm_6 = * + 1
+        lda $ffff,y            ; pulse width = value * 16   ; <- ins_pw
         pha
         asl
         asl
@@ -310,32 +407,39 @@ trigger:
         lsr
         lsr
         sta v_pwhi,x
-        lda ins_pwspd,y
+sm_7 = * + 1
+        lda $ffff,y   ; <- ins_pwspd
         sta v_pwspd,x
-        lda ins_vibdelay,y
+sm_8 = * + 1
+        lda $ffff,y   ; <- ins_vibdelay
         sta v_vdel,x
-        lda ins_vibspeed,y
+sm_9 = * + 1
+        lda $ffff,y   ; <- ins_vibspeed
         lsr
         sta v_vphase,x          ; start mid-slope so vibrato centres on the note
 
-        lda ins_filt,y
-        beq @nofilt
+sm_10 = * + 1
+        lda $ffff,y   ; <- ins_filt
+        beq trigger_nofilt
         sta f_cut
-        lda ins_fsweep,y
+sm_11 = * + 1
+        lda $ffff,y   ; <- ins_fsweep
         sta f_sweep
         lda f_route
         ora vbit,x
         sta f_route
-        jmp @adsr
-@nofilt:
+        jmp trigger_adsr
+trigger_nofilt:
         lda vbit,x
         eor #$ff
         and f_route
         sta f_route
 
-@adsr:  lda ins_sr,y
+sm_12 = * + 1
+trigger_adsr:  lda $ffff,y   ; <- ins_sr
         pha
-        lda ins_ad,y
+sm_13 = * + 1
+        lda $ffff,y   ; <- ins_ad
         pha
         jsr voice_regs
         pla
@@ -351,57 +455,63 @@ trigger:
 
 effects:
         ldy v_wpos,x
-        lda wt_wave,y
+sm_14 = * + 1
+        lda $ffff,y   ; <- wt_wave
         cmp #$ff
-        bne @wave
-        lda wt_note,y
+        bne effects_wave
+sm_15 = * + 1
+        lda $ffff,y   ; <- wt_note
         tay
-        lda wt_wave,y
-@wave:  sta tmp_ctrl
-        lda wt_note,y
+sm_16 = * + 1
+        lda $ffff,y   ; <- wt_wave
+effects_wave:  sta tmp_ctrl
+sm_17 = * + 1
+        lda $ffff,y   ; <- wt_note
         sta tmp_arp
         iny
         tya
         sta v_wpos,x
         lda v_gate,x
-        bne @gated
+        bne effects_gated
         lda tmp_ctrl
         and #$fe
         sta tmp_ctrl
-@gated:
+effects_gated:
         lda tmp_arp
-        bmi @absnote
+        bmi effects_absnote
         clc
         adc v_note,x
-        jmp @setnote
-@absnote:
+        jmp effects_setnote
+effects_absnote:
         and #$7f
-@setnote:
+effects_setnote:
         tay
         lda v_slide,x
-        beq @noslide
+        beq effects_noslide
         jsr do_slide
-        jmp @vibrato
-@noslide:
+        jmp effects_vibrato
+effects_noslide:
         lda freq_lo,y
         sta v_frlo,x
         lda freq_hi,y
         sta v_frhi,x
 
-@vibrato:
+effects_vibrato:
         ldy v_ins,x
-        lda ins_vibdepth,y
-        beq @output
+sm_18 = * + 1
+        lda $ffff,y   ; <- ins_vibdepth
+        beq effects_output
         sta tmp_depth
         lda v_vdel,x
-        beq @vibgo
+        beq effects_vibgo
         dec v_vdel,x
-        jmp @output
-@vibgo: lda ins_vibspeed,y
+        jmp effects_output
+sm_19 = * + 1
+effects_vibgo: lda $ffff,y   ; <- ins_vibspeed
         sta tmp_spd
         lda v_vphase,x
         cmp tmp_spd
-        bcs @vibdown
+        bcs effects_vibdown
         clc
         lda v_vofslo,x
         adc tmp_depth
@@ -409,8 +519,8 @@ effects:
         lda v_vofshi,x
         adc #0
         sta v_vofshi,x
-        jmp @vibphase
-@vibdown:
+        jmp effects_vibphase
+effects_vibdown:
         sec
         lda v_vofslo,x
         sbc tmp_depth
@@ -418,16 +528,16 @@ effects:
         lda v_vofshi,x
         sbc #0
         sta v_vofshi,x
-@vibphase:
+effects_vibphase:
         inc v_vphase,x
         lda tmp_spd
         asl
         cmp v_vphase,x
-        bne @output
+        bne effects_output
         lda #0
         sta v_vphase,x
 
-@output:
+effects_output:
         jsr voice_regs
         clc
         lda v_frlo,x
@@ -439,8 +549,8 @@ effects:
 
         ; pulse width sweep, bouncing between $200 and $e00
         lda v_pwspd,x
-        beq @pwout
-        bmi @pwdown
+        beq effects_pwout
+        bmi effects_pwdown
         clc
         adc v_pwlo,x
         sta v_pwlo,x
@@ -448,9 +558,9 @@ effects:
         adc #0
         sta v_pwhi,x
         cmp #$0e
-        bcc @pwout
-        bcs @pwflip
-@pwdown:
+        bcc effects_pwout
+        bcs effects_pwflip
+effects_pwdown:
         clc
         adc v_pwlo,x
         sta v_pwlo,x
@@ -458,14 +568,14 @@ effects:
         adc #$ff
         sta v_pwhi,x
         cmp #$02
-        bcs @pwout
-@pwflip:
+        bcs effects_pwout
+effects_pwflip:
         lda v_pwspd,x
         eor #$ff
         clc
         adc #1
         sta v_pwspd,x
-@pwout: lda v_pwlo,x
+effects_pwout: lda v_pwlo,x
         sta SID+2,y
         lda v_pwhi,x
         sta SID+3,y
@@ -479,7 +589,7 @@ do_slide:
         cmp v_tglo,x
         lda v_frhi,x
         sbc v_tghi,x
-        bcs @down
+        bcs do_slide_down
         clc
         lda v_frlo,x
         adc v_slspd,x
@@ -491,9 +601,9 @@ do_slide:
         cmp v_tglo,x
         lda v_frhi,x
         sbc v_tghi,x
-        bcc @done
-        bcs @arrive
-@down:  sec
+        bcc do_slide_done
+        bcs do_slide_arrive
+do_slide_down:  sec
         lda v_frlo,x
         sbc v_slspd,x
         sta v_frlo,x
@@ -504,12 +614,12 @@ do_slide:
         cmp v_tglo,x
         lda v_frhi,x
         sbc v_tghi,x
-        bcs @done
-@arrive:
+        bcs do_slide_done
+do_slide_arrive:
         lda v_tglo,x
         sta v_frlo,x
         lda v_tghi,x
         sta v_frhi,x
         lda #0
         sta v_slide,x
-@done:  rts
+do_slide_done:  rts

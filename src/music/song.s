@@ -10,11 +10,7 @@
 
         .include "notes.inc"
 
-        .export song_tempo, song_order_lo, song_order_hi
-        .export pat_lo, pat_hi
-        .export ins_ad, ins_sr, ins_wave, ins_pw, ins_pwspd
-        .export ins_vibdepth, ins_vibdelay, ins_vibspeed, ins_filt, ins_fsweep
-        .export wt_wave, wt_note, song_text
+        .export neon_song              ; song descriptor for music_init
 
 REST = $60
 TIE  = $61
@@ -35,6 +31,13 @@ END  = $ff
 .define TR(semitones) ($a0 + (semitones))
 
 .segment "RODATA"
+
+; Descriptor: where this song's tables are (order fixed by player.s)
+neon_song:
+        .word song_tempo, song_order_lo, song_order_hi, pat_lo, pat_hi
+        .word ins_ad, ins_sr, ins_wave, ins_pw, ins_pwspd
+        .word ins_vibdepth, ins_vibdelay, ins_vibspeed, ins_filt, ins_fsweep
+        .word wt_wave, wt_note, song_text
 
 song_tempo:     .byte 5
 

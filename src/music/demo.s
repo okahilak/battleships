@@ -1,15 +1,28 @@
-; Plays the song from a raster interrupt. The border shows the player's
-; CPU time per frame.
+; Plays a song from a raster interrupt. The border shows the player's
+; CPU time per frame. Assemble with -D SONG_GALWAY for the second tune.
 
-        .import music_init, music_play, song_text
+        .import music_init, music_play
+.ifdef SONG_GALWAY
+        .import galway_song
+        SONG = galway_song
+.else
+        .import neon_song
+        SONG = neon_song
+.endif
+
+text    = $fb                   ; title text pointer (descriptor field 17)
 
 .segment "CODE"
 start:
-        ldx #0
-@print: lda song_text,x
+        lda SONG + 34
+        sta text
+        lda SONG + 35
+        sta text+1
+        ldy #0
+@print: lda (text),y
         beq @go
         jsr $ffd2               ; CHROUT
-        inx
+        iny
         bne @print
 
 @go:    sei
@@ -27,6 +40,8 @@ start:
         sta $0314
         lda #>irq
         sta $0315
+        lda #<SONG
+        ldx #>SONG
         jsr music_init
         cli
 forever:

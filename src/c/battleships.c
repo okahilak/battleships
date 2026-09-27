@@ -488,8 +488,14 @@ static void update_sprites(void)
 
 /* Music and effects run from a raster interrupt (src/music/sound.s).
    Effects borrow one SID voice; a higher number has priority. */
-void sound_start(void);
+void __fastcall__ sound_start(unsigned char song);
+void __fastcall__ music_select(unsigned char song);
 void __fastcall__ sfx_play(unsigned char effect);
+
+/* Music choices on the title screen; the last one is "off". */
+#define SONGS 3
+static const char *const song_names[SONGS] = { "neon tide", "moonlit harbour", "off" };
+static unsigned char song;
 
 #define SFX_SPLASH  0
 #define SFX_SHOT    1
@@ -1145,6 +1151,51 @@ static void title(void)
     print_centered(23, "press fire to start", COLOR_YELLOW);
 }
 
+static void draw_music_choice(void)
+{
+    char line[32];
+    unsigned char x;
+
+    for (x = 0; x < 40; ++x) {
+        SCREEN[6 * 40 + x] = sea_char(x, 6);
+        COLORRAM[6 * 40 + x] = COLOR_LIGHTBLUE;
+    }
+    strcpy(line, "< music: ");
+    strcat(line, song_names[song]);
+    strcat(line, " >");
+    print_centered(6, line, COLOR_LIGHTGREEN);
+}
+
+/* Title screen: left/right changes the music (it plays straight away),
+   fire starts the game. */
+static void title_menu(void)
+{
+#ifndef AUTOPLAY
+    unsigned char joy, pressed, prev = 0xFF;    /* ignore anything already held */
+#endif
+
+    title();
+    draw_music_choice();
+#ifdef AUTOPLAY
+    wait_fire();
+#else
+    for (;;) {
+        wait_frame();
+        joy = read_joy(0) | read_joy(1);
+        pressed = joy & ~prev;
+        prev = joy;
+        if (pressed & (JOY_LEFT | JOY_RIGHT)) {
+            song = (song + ((pressed & JOY_RIGHT) ? 1 : SONGS - 1)) % SONGS;
+            music_select(song);
+            draw_music_choice();
+        }
+        if (pressed & JOY_FIRE) {
+            break;
+        }
+    }
+#endif
+}
+
 extern char _BSS_RUN__[], _BSS_SIZE__[];
 
 int main(void)
@@ -1171,11 +1222,10 @@ int main(void)
     CIA1.pra = 0xFF;
 
     make_sprites();
-    sound_start();
+    sound_start(song);
     SPRPTR[SPR_AIM(0)] = SPRPTR[SPR_AIM(1)] = BLK_AIM;
 
-    title();
-    wait_fire();
+    title_menu();
     srand(((unsigned)frame << 8) | VIC.rasterline);   /* players' timing seeds the maps */
 
     for (;;) {

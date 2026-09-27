@@ -3,8 +3,11 @@
 ; the other two voices keep the music going.
 ;
 ; C interface:
-;   void sound_start(void);                    start music + interrupt
-;   void __fastcall__ sfx_play(unsigned char); start an effect (0..SFX_COUNT-1)
+;   void __fastcall__ sound_start(unsigned char song);  start interrupt + music
+;   void __fastcall__ music_select(unsigned char song); switch song
+;   void __fastcall__ sfx_play(unsigned char);          start an effect
+;
+; Songs: 0 = Neon Tide, 1 = Moonlit Harbour, 2 = music off (effects only).
 ;
 ; A higher effect number has priority: it replaces a lower one that is still
 ; playing, a lower one is ignored while a higher one plays.
@@ -12,8 +15,9 @@
 ; The CIA timer interrupt is switched off, so the KERNAL no longer scans the
 ; keyboard (it would also disturb joystick reads through $dc00).
 
-        .export _sound_start, _sfx_play
+        .export _sound_start, _music_select, _sfx_play
         .import music_init, music_play, music_mute
+        .import neon_song, galway_song
 
 VOICE    = $d407                ; SID voice 2 registers
 VOICEBIT = 2                    ; voice 2 in music_mute
@@ -29,7 +33,13 @@ sfx_delta: .byte $ff,   $fe,   $ff,   $00   ; frequency change per frame (signed
 sfx_len:   .byte 16,    12,    26,    80    ; frames
 SFX_COUNT = * - sfx_len
 
+.segment "RODATA"
+songs_lo:  .byte <neon_song, <galway_song
+songs_hi:  .byte >neon_song, >galway_song
+SONG_COUNT = * - songs_hi
+
 .segment "BSS"
+music_on:  .res 1               ; 0 = music off
 pending:   .res 1               ; requested effect, $ff = none
 current:   .res 1               ; playing effect, $ff = none
 timer:     .res 1
@@ -39,13 +49,12 @@ freq:      .res 1
 
 _sound_start:
         sei
+        pha
         lda #$7f                ; no CIA interrupts
         sta $dc0d
         lda $dc0d
-        lda #$ff
-        sta pending
-        sta current
-        jsr music_init
+        pla
+        jsr select
         lda #IRQLINE
         sta $d012
         lda $d011
@@ -61,6 +70,39 @@ _sound_start:
         cli
         rts
 
+; A = song (0..SONG_COUNT-1), or anything else for music off.
+_music_select:
+        sei
+        jsr select
+        cli
+        rts
+
+; With interrupts off: stops any effect and starts song A (or silence).
+select: ldx #$ff
+        stx pending
+        stx current
+        cmp #SONG_COUNT
+        bcs @off
+        tax
+        lda #1
+        sta music_on
+        lda songs_lo,x
+        pha
+        lda songs_hi,x
+        tax
+        pla
+        jmp music_init
+@off:   lda #0
+        sta music_on
+        sta music_mute
+        ldx #$17
+:       sta $d400,x             ; silence all voices and the filter
+        dex
+        bpl :-
+        lda #$0f                ; volume on for the effects
+        sta $d418
+        rts
+
 ; A = effect number. The interrupt starts it on its next run.
 _sfx_play:
         ldx pending
@@ -73,8 +115,10 @@ _sfx_play:
 
 irq:    asl $d019               ; acknowledge raster interrupt
         jsr sfx_tick            ; before music, so the mute is set in time
+        lda music_on
+        beq :+
         jsr music_play
-        jmp $ea81               ; restore registers, rti
+:       jmp $ea81               ; restore registers, rti
 
 sfx_tick:
         lda pending

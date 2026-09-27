@@ -57,7 +57,7 @@ The 36 ship images (one every 10°) are pre-rotated by [tools/gen_ship_sprites.p
 
 The font and graphics characters (islands, waves, hearts, ammo, markers, slider) are a custom character set from [tools/gen_charset.py](tools/gen_charset.py). The script writes `src/c/charset.h`, and the game copies it to $A000 at startup. The glyphs keep the standard C64 screen codes, so editing a pattern in the script changes that character everywhere. Islands use 16 coast tiles (one per combination of land neighbours) with rounded corners and an irregular shoreline. The game picks the right tile for each land square, and land checks are pixel-precise, so ships can sail into the rounded bays.
 
-"Neon Tide" plays throughout. Sound effects borrow the song's arpeggio voice (voice 2) while they play, and the bass/drums and lead continue. The interrupt driver is [src/music/sound.s](src/music/sound.s).
+The title screen has a music selector: left/right on either joystick switches between "Neon Tide", "Moonlit Harbour" and off, and the choice plays straight away. The music plays throughout the game. Sound effects borrow the song's arpeggio voice (voice 2) while they play, and the bass/drums and lead continue. The interrupt driver is [src/music/sound.s](src/music/sound.s).
 
 ## Music
 
@@ -78,7 +78,7 @@ A second original tune, "Moonlit Harbour" ([src/music/galway.s](src/music/galway
 - Voice 2 plays soft chord arpeggios; in the B section it echoes the lead three rows later, quieter.
 - Voice 3 plays a singing lead with slow pulse-width sweep, delayed vibrato and slides.
 
-It builds to `build/galway.prg` and `build/galway.sid` (`make run PRG=galway`, `make play SID=galway`). Each song file carries its own title-screen text (`song_text`).
+Songs are described by a small table of pointers (a descriptor), so one player can play either. `music_init` takes the descriptor and patches it into the player's table-reading instructions. It builds to `build/galway.prg` and `build/galway.sid` (`make run PRG=galway`, `make play SID=galway`). Each song file carries its own title-screen text (`song_text`).
 
 To write your own tune, edit the patterns and order lists in `song.s`. Note names such as `D5` and `As4` (A-sharp/B-flat) come from `notes.inc`.
 
