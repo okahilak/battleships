@@ -12,7 +12,8 @@
  *   tap fire           fire a shell; it flies in an arc and lands on the
  *                      crosshair after a delay, hitting any ship there
  *
- * Each ship takes 5 hits. Islands block ships.
+ * Each ship takes 5 hits. A ship that runs aground on an island is wrecked
+ * at once. The screen edges just stop it.
  *
  * Build with -DAUTOPLAY to let two simple bots play (used for testing).
  */
@@ -490,22 +491,39 @@ static void wait_fire(void)
 /* ------------------------------------------------------------------ */
 /* Game logic                                                         */
 
-static unsigned char solid_at(int px, int py)
+static unsigned char off_sea(int px, int py)
 {
-    if (px < 2 || px > 317 || py < 10 || py > 197) {
-        return 1;
-    }
+    return px < 2 || px > 317 || py < 10 || py > 197;
+}
+
+/* Only for points inside the sea area (check off_sea first). */
+static unsigned char land_at(int px, int py)
+{
     return SCREEN[(py >> 3) * 40 + (px >> 3)] == ISLAND_CHAR;
 }
 
-static unsigned char ship_blocked(int x, int y, unsigned char d)
+static unsigned char solid_at(int px, int py)
+{
+    return off_sea(px, py) || land_at(px, py);
+}
+
+enum { CONTACT_NONE, CONTACT_EDGE, CONTACT_LAND };
+
+/* What the ship's centre, bow and stern touch at position (x,y). */
+static unsigned char ship_contact(int x, int y, unsigned char d)
 {
     int px = x >> 4;
     int py = y >> 4;
     int bx = bow_x[d];
     int by = BOW_Y(d);
 
-    return solid_at(px, py) || solid_at(px + bx, py + by) || solid_at(px - bx, py - by);
+    if (off_sea(px, py) || off_sea(px + bx, py + by) || off_sea(px - bx, py - by)) {
+        return CONTACT_EDGE;
+    }
+    if (land_at(px, py) || land_at(px + bx, py + by) || land_at(px - bx, py - by)) {
+        return CONTACT_LAND;
+    }
+    return CONTACT_NONE;
 }
 
 static int iabs(int v)
@@ -599,6 +617,7 @@ static void move_ship(unsigned char p)
 {
     ship_t *s = &ships[p];
     unsigned char joy = read_joy(p);
+    unsigned char contact;
     int nx, ny;
 
     if (s->reload) --s->reload;
@@ -658,11 +677,18 @@ static void move_ship(unsigned char p)
 
     nx = s->x + step(&s->rx, s->vx);
     ny = s->y + step(&s->ry, s->vy);
-    if (ship_blocked(nx, ny, s->dir)) {
+    contact = ship_contact(nx, ny, s->dir);
+    if (contact == CONTACT_EDGE) {
         s->vx = s->vy = 0;
     } else {
         s->x = nx;
         s->y = ny;
+        if (contact == CONTACT_LAND) {
+            /* ran aground: wrecked on the spot */
+            s->hp = 0;
+            s->vx = s->vy = 0;
+            draw_hud();
+        }
     }
 }
 
@@ -758,11 +784,13 @@ static void new_round(void)
     update_sprites();
 }
 
-/* Plays one round, returns the winner (0 or 1). */
+#define DRAW 2
+
+/* Plays one round, returns the winner (0 or 1) or DRAW if both ships sank. */
 static unsigned char play_round(void)
 {
     int ox0, oy0, ox1, oy1;
-    unsigned char loser, t;
+    unsigned char k, t, lost = 0;
 
     new_round();
     while (ships[0].hp && ships[1].hp) {
@@ -776,18 +804,30 @@ static unsigned char play_round(void)
         move_shells();
     }
 
-    loser = ships[0].hp ? 1 : 0;
-    sfx_play(SFX_SINK);
-    VIC.spr_ena = (1 << SPR_SHIP(0)) | (1 << SPR_SHIP(1));
-    SPRPTR[SPR_SHIP(loser)] = BLK_BOOM;
-    for (t = 0; t < 100; ++t) {
-        wait_frame();
-        SPRCOLOR[SPR_SHIP(loser)] = (t & 4) ? COLOR_YELLOW : COLOR_ORANGE;
-        if (t == 70) {
-            VIC.spr_ena &= ~(1 << SPR_SHIP(loser));
+    /* both can go down in the same frame */
+    for (k = 0; k < 2; ++k) {
+        if (!ships[k].hp) {
+            lost |= 1 << SPR_SHIP(k);
+            SPRPTR[SPR_SHIP(k)] = BLK_BOOM;
         }
     }
-    return loser ^ 1;
+    sfx_play(SFX_SINK);
+    VIC.spr_ena = (1 << SPR_SHIP(0)) | (1 << SPR_SHIP(1));
+    for (t = 0; t < 100; ++t) {
+        wait_frame();
+        for (k = 0; k < 2; ++k) {
+            if (!ships[k].hp) {
+                SPRCOLOR[SPR_SHIP(k)] = (t & 4) ? COLOR_YELLOW : COLOR_ORANGE;
+            }
+        }
+        if (t == 70) {
+            VIC.spr_ena &= ~lost;
+        }
+    }
+    if (!ships[0].hp && !ships[1].hp) {
+        return DRAW;
+    }
+    return ships[0].hp ? 0 : 1;
 }
 
 static void title(void)
@@ -803,6 +843,7 @@ static void title(void)
     print_centered(16, "tap fire   shoot", COLOR_WHITE);
     print_centered(18, "shells land on your cross", COLOR_CYAN);
     print_centered(19, "five hits sinks a ship", COLOR_CYAN);
+    print_centered(20, "running aground wrecks it", COLOR_CYAN);
     print_centered(22, "press fire to start", COLOR_YELLOW);
 }
 
@@ -839,11 +880,16 @@ int main(void)
 
     for (;;) {
         w = play_round();
-        ++wins[w];
-        if (wins[w] > 99) wins[w] = 99;
-        draw_hud();
-        print_centered(11, w ? " player 2 wins! " : " player 1 wins! ",
-                       w ? COLOR_LIGHTRED : COLOR_YELLOW);
+        if (w == DRAW) {
+            draw_hud();
+            print_centered(11, " both ships lost! ", COLOR_WHITE);
+        } else {
+            ++wins[w];
+            if (wins[w] > 99) wins[w] = 99;
+            draw_hud();
+            print_centered(11, w ? " player 2 wins! " : " player 1 wins! ",
+                           w ? COLOR_LIGHTRED : COLOR_YELLOW);
+        }
         print_centered(13, " press fire ", COLOR_WHITE);
         wait_fire();
     }
