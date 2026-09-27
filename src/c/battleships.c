@@ -6,9 +6,10 @@
  *
  *   joystick           move your crosshair (the ship keeps its course)
  *   fire + left/right  turn the ship (10-degree steps)
- *   fire + up          engines ahead (ships are heavy: speed builds up
- *                      slowly, and nothing but the engines slows them down)
- *   fire + down        engines astern / brake
+ *   fire + up/down     move the engine setting (speed setpoint) ahead or
+ *                      astern; the slider on the bottom row shows it. The
+ *                      ship's speed follows the setting with a delay, and
+ *                      nothing but the engines slows it down.
  *   The ship always moves the way its bow points.
  *   tap fire           fire a shell; it flies in an arc and lands on the
  *                      crosshair after a delay, hitting any ship there
@@ -64,7 +65,19 @@
 /* Ship physics. Velocity is in 1/256 pixel per frame. */
 #define MAX_SPEED   192                 /* ahead: 0.75 pixels per frame */
 #define MAX_REVERSE 64                  /* astern */
-#define SPEED_STEP  3                   /* engine change per frame: 0 to full in ~1.3 s */
+#define SPEED_STEP  3                   /* max speed change per frame toward the setpoint */
+#define SET_STEP    6                   /* setpoint change per frame while fire+up/down */
+
+/* Engine slider on the bottom row: 17 cells from full astern to full ahead. */
+#define SLIDER_ROW   24
+#define SLIDER_COL0  0
+#define SLIDER_COL1  23
+#define SLIDER_CELLS 17
+#define SLIDER_UNIT  ((MAX_SPEED + MAX_REVERSE) / (SLIDER_CELLS - 1))
+#define SLIDER_ZERO  (MAX_REVERSE / SLIDER_UNIT)
+#define SL_TRACK     64                 /* horizontal line */
+#define SL_ZERO      91                 /* cross: stop */
+#define SL_KNOB      90                 /* diamond: setpoint */
 #define TURN_DELAY  5                   /* frames per 10-degree heading step */
 #define FPS         50                  /* PAL frames per second */
 #define RELOAD      30                  /* frames between shots */
@@ -82,6 +95,9 @@
 typedef struct {
     int x, y;                   /* centre, 1/16 pixel */
     int speed;                  /* along the heading, 1/256 pixel per frame */
+    int setpoint;               /* engine setting the speed follows */
+    unsigned char knob_cell;    /* slider as last drawn */
+    unsigned char fill_cell;
     int vx, vy;                 /* resulting velocity, derived each frame */
     int rx, ry;                 /* sub-step remainder, 0..15 */
     unsigned char dir;
@@ -234,6 +250,34 @@ static void draw_ammo(unsigned char p)
     }
 }
 
+static unsigned char slider_cell(int v)
+{
+    return (unsigned char)((v + MAX_REVERSE + SLIDER_UNIT / 2) / SLIDER_UNIT);
+}
+
+/* Engine slider: knob at the setpoint, track lit from stop to the actual
+   speed, so the delay between the two is visible. */
+static void draw_slider(unsigned char p)
+{
+    ship_t *s = &ships[p];
+    unsigned int o = SLIDER_ROW * 40 + (p ? SLIDER_COL1 : SLIDER_COL0);
+    unsigned char i, lo, hi;
+
+    s->knob_cell = slider_cell(s->setpoint);
+    s->fill_cell = slider_cell(s->speed);
+    lo = s->fill_cell < SLIDER_ZERO ? s->fill_cell : SLIDER_ZERO;
+    hi = s->fill_cell > SLIDER_ZERO ? s->fill_cell : SLIDER_ZERO;
+    for (i = 0; i < SLIDER_CELLS; ++i, ++o) {
+        if (i == s->knob_cell) {
+            SCREEN[o] = SL_KNOB;
+            COLORRAM[o] = COLOR_WHITE;
+        } else {
+            SCREEN[o] = i == SLIDER_ZERO ? SL_ZERO : SL_TRACK;
+            COLORRAM[o] = (i >= lo && i <= hi) ? s->color : COLOR_GRAY1;
+        }
+    }
+}
+
 static void draw_hud(void)
 {
     unsigned char i;
@@ -254,6 +298,9 @@ static void draw_hud(void)
     put_number(20, wins[1], COLOR_LIGHTRED);
     draw_ammo(0);
     draw_ammo(1);
+    memset(SCREEN + SLIDER_ROW * 40, ' ', 40);
+    draw_slider(0);
+    draw_slider(1);
 }
 
 /* ------------------------------------------------------------------ */
@@ -459,10 +506,10 @@ static unsigned char bot(unsigned char me)
     if (diff != 0) {
         joy |= diff <= HEADINGS / 2 ? JOY_RIGHT : JOY_LEFT;
     }
-    /* cruise at about half speed, brake when close */
-    if (ax + ay > 60 && s->speed < 100) {
+    /* cruise at about half speed, stop when close */
+    if (ax + ay > 60 && s->setpoint < 100) {
         joy |= JOY_UP;
-    } else if (ax + ay <= 60 && s->speed > 0) {
+    } else if (ax + ay <= 60 && s->setpoint > 0) {
         joy |= JOY_DOWN;
     }
     return joy ? joy | JOY_FIRE : 0;    /* steering needs fire held */
@@ -667,7 +714,7 @@ static void move_ship(unsigned char p)
     ship_t *s = &ships[p];
     unsigned char joy = read_joy(p);
     unsigned char contact;
-    int nx, ny;
+    int nx, ny, d;
 
     if (s->reload) --s->reload;
     if (s->cooldown) {
@@ -712,13 +759,25 @@ static void move_ship(unsigned char p)
         s->turn_wait = 0;               /* taps turn immediately */
     }
 
-    /* engines change the speed slowly; nothing else slows the ship down */
+    /* fire + up/down moves the engine setting */
     if (joy & JOY_UP) {
-        s->speed += SPEED_STEP;
-        if (s->speed > MAX_SPEED) s->speed = MAX_SPEED;
+        s->setpoint += SET_STEP;
+        if (s->setpoint > MAX_SPEED) s->setpoint = MAX_SPEED;
     } else if (joy & JOY_DOWN) {
-        s->speed -= SPEED_STEP;
-        if (s->speed < -MAX_REVERSE) s->speed = -MAX_REVERSE;
+        s->setpoint -= SET_STEP;
+        if (s->setpoint < -MAX_REVERSE) s->setpoint = -MAX_REVERSE;
+    }
+
+    /* the speed follows the setting with a delay: an eighth of the gap per
+       frame, at least 1 and at most SPEED_STEP; nothing else slows it down */
+    d = (s->setpoint - s->speed) / 8;
+    if (d == 0 && s->setpoint != s->speed) d = s->setpoint > s->speed ? 1 : -1;
+    if (d > SPEED_STEP) d = SPEED_STEP;
+    if (d < -SPEED_STEP) d = -SPEED_STEP;
+    s->speed += d;
+
+    if (slider_cell(s->setpoint) != s->knob_cell || slider_cell(s->speed) != s->fill_cell) {
+        draw_slider(p);
     }
 
     /* the ship moves the way its bow points (head_x/y are scaled by 32) */
@@ -893,7 +952,7 @@ static void title(void)
     print_centered(10, "player 2  joystick port 1", COLOR_LIGHTRED);
     print_centered(13, "joystick   aim", COLOR_WHITE);
     print_centered(14, "fire + left/right   turn", COLOR_WHITE);
-    print_centered(15, "fire + up/down   engines", COLOR_WHITE);
+    print_centered(15, "fire + up/down   engine setting", COLOR_WHITE);
     print_centered(16, "tap fire   shoot", COLOR_WHITE);
     print_centered(18, "shells land on your cross", COLOR_CYAN);
     print_centered(19, "3 shots, then a 5 s reload", COLOR_CYAN);
