@@ -109,7 +109,7 @@
 #define AMMO_CELLS  5
 #define COOL_CELL   (COOLDOWN / AMMO_CELLS)  /* reload ticks per bar block */
 #define SHELLS_PER  2                   /* shells in flight per player */
-/* crosshair: 1 pixel per tick */
+#define AIM_SPEED   2                   /* crosshair pixels per tick (50 px/s) */
 #define AIM_AHEAD   64                  /* crosshair start distance from ship */
 #define HIT_RANGE   10                  /* pixels from ship centre that count as a hit */
 #define HIT_RANGE_SPOT 18               /* ... with a spotter plane correcting fire */
@@ -888,10 +888,10 @@ static void fire(unsigned char p)
 
 static void move_aim(ship_t *s, unsigned char joy)
 {
-    if (joy & JOY_LEFT)  --s->aim_x;
-    if (joy & JOY_RIGHT) ++s->aim_x;
-    if (joy & JOY_UP)    --s->aim_y;
-    if (joy & JOY_DOWN)  ++s->aim_y;
+    if (joy & JOY_LEFT)  s->aim_x -= AIM_SPEED;
+    if (joy & JOY_RIGHT) s->aim_x += AIM_SPEED;
+    if (joy & JOY_UP)    s->aim_y -= AIM_SPEED;
+    if (joy & JOY_DOWN)  s->aim_y += AIM_SPEED;
     if (s->aim_x < 4)   s->aim_x = 4;
     if (s->aim_x > 315) s->aim_x = 315;
     if (s->aim_y < 12)  s->aim_y = 12;
