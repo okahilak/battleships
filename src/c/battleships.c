@@ -4,11 +4,11 @@
  *   Player 1 (yellow, starts left):  joystick in port 2
  *   Player 2 (red, starts right):    joystick in port 1
  *
- *   left / right       turn the ship (8 headings)
- *   up                 engines ahead (ships are heavy: they speed up, slow
+ *   joystick           move your crosshair (the ship keeps its course)
+ *   fire + left/right  turn the ship (8 headings)
+ *   fire + up          engines ahead (ships are heavy: they speed up, slow
  *                      down and change course slowly, and drift in turns)
- *   down               engines astern / brake
- *   fire + joystick    move your crosshair (the ship keeps its course)
+ *   fire + down        engines astern / brake
  *   tap fire           fire a shell; it flies in an arc and lands on the
  *                      crosshair after a delay, hitting any ship there
  *
@@ -52,6 +52,7 @@
 #define JOY_LEFT    0x04
 #define JOY_RIGHT   0x08
 #define JOY_FIRE    0x10
+#define JOY_DIRS    (JOY_UP | JOY_DOWN | JOY_LEFT | JOY_RIGHT)
 
 #define MAX_HP      5
 /* Ship physics. Velocity is in 1/256 pixel per frame. */
@@ -97,7 +98,7 @@ typedef struct {
     unsigned char color;
     int aim_x, aim_y;           /* crosshair, pixels */
     unsigned char fire_held;
-    unsigned char aim_moved;    /* crosshair moved during this press: no shot */
+    unsigned char stick_used;   /* joystick moved during this press: no shot */
 } ship_t;
 
 enum { SHELL_FREE, SHELL_FLYING, SHELL_SPLASH };
@@ -418,18 +419,16 @@ static unsigned char bot(unsigned char me)
     int ex, ey, lead;
 
     switch (bot_phase[me]) {
-    case 1:                             /* hold fire, steer crosshair onto target */
+    case 1:                             /* fire released: move crosshair onto target */
         lead = 25 + (ax > ay ? ax : ay) / 5;
         ex = (t->x >> 4) + t->vx / 16 * lead / 16;
         ey = (t->y >> 4) + t->vy / 16 * lead / 16;
-        joy = JOY_FIRE;
         if (s->aim_x < ex - 2) joy |= JOY_RIGHT;
         else if (s->aim_x > ex + 2) joy |= JOY_LEFT;
         if (s->aim_y < ey - 2) joy |= JOY_DOWN;
         else if (s->aim_y > ey + 2) joy |= JOY_UP;
-        if (joy == JOY_FIRE) {
+        if (joy == 0) {
             bot_phase[me] = 2;
-            return 0;                   /* release (no shot: crosshair moved) */
         }
         return joy;
     case 2:
@@ -456,7 +455,7 @@ static unsigned char bot(unsigned char me)
     if (ax + ay > 50 || diff != 0) {
         joy |= JOY_UP;
     }
-    return joy;
+    return joy ? joy | JOY_FIRE : 0;    /* steering needs fire held */
 }
 #endif
 
@@ -606,20 +605,24 @@ static void move_ship(unsigned char p)
     if (s->flash) --s->flash;
 
     if (joy & JOY_FIRE) {
-        /* fire held: the joystick moves the crosshair, not the ship */
-        if (joy & (JOY_UP | JOY_DOWN | JOY_LEFT | JOY_RIGHT)) {
-            move_aim(s, joy);
-            s->aim_moved = 1;
+        /* fire held: the joystick steers the ship */
+        if (joy & JOY_DIRS) {
+            s->stick_used = 1;
         }
         s->fire_held = 1;
-        joy = 0;
-    } else if (s->fire_held) {
-        /* released: a plain tap fires, an aiming press does not */
-        if (!s->aim_moved) {
-            fire(p);
+    } else {
+        if (s->fire_held) {
+            /* released: a plain tap fires, a steering press does not */
+            if (!s->stick_used) {
+                fire(p);
+            }
+            s->fire_held = 0;
+            s->stick_used = 0;
         }
-        s->fire_held = 0;
-        s->aim_moved = 0;
+        /* fire not held: the joystick moves the crosshair, the ship keeps
+           its course */
+        move_aim(s, joy);
+        joy = 0;
     }
 
     if (joy & (JOY_LEFT | JOY_RIGHT)) {
@@ -745,7 +748,7 @@ static void new_round(void)
     ships[1].aim_x = 287 - AIM_AHEAD; ships[1].aim_y = 104;
     /* fire may still be held from the previous screen: ignore that press */
     ships[0].fire_held = ships[1].fire_held = 1;
-    ships[0].aim_moved = ships[1].aim_moved = 1;
+    ships[0].stick_used = ships[1].stick_used = 1;
     for (i = 0; i < 2; ++i) {
         SPRCOLOR[SPR_AIM(i)] = ships[i].color;
     }
@@ -794,9 +797,9 @@ static void title(void)
     print_centered(4, "b a t t l e s h i p s", COLOR_WHITE);
     print_centered(8, "player 1  joystick port 2", COLOR_YELLOW);
     print_centered(10, "player 2  joystick port 1", COLOR_LIGHTRED);
-    print_centered(13, "left/right   turn", COLOR_WHITE);
-    print_centered(14, "up/down   engines", COLOR_WHITE);
-    print_centered(15, "fire + joystick   aim", COLOR_WHITE);
+    print_centered(13, "joystick   aim", COLOR_WHITE);
+    print_centered(14, "fire + left/right   turn", COLOR_WHITE);
+    print_centered(15, "fire + up/down   engines", COLOR_WHITE);
     print_centered(16, "tap fire   shoot", COLOR_WHITE);
     print_centered(18, "shells land on your cross", COLOR_CYAN);
     print_centered(19, "five hits sinks a ship", COLOR_CYAN);
@@ -813,6 +816,7 @@ int main(void)
     VIC.addr = 0x04;                    /* screen +$0000, uppercase/graphics charset +$1000 */
     VIC.bordercolor = COLOR_BLACK;
     VIC.bgcolor0 = COLOR_BLUE;
+    draw_sea();                         /* the new screen RAM holds garbage */
 
     if ((unsigned)_BSS_RUN__ + (unsigned)_BSS_SIZE__ > VIC_BANK) {
         print(0, 0, "program overlaps screen memory", COLOR_WHITE);
