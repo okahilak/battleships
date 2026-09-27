@@ -106,6 +106,18 @@
 #define AIM_SPEED   2                   /* crosshair pixels per frame */
 #define AIM_AHEAD   64                  /* crosshair start distance from ship */
 #define HIT_RANGE   10                  /* pixels from ship centre that count as a hit */
+#define HIT_RANGE_SPOT 18               /* ... with a spotter plane correcting fire */
+
+/* Power-up crates: one at a time on open sea; sail next to it to pick up. */
+enum { PU_FAST, PU_REPAIR, PU_SPOT, PU_KINDS };
+#define CRATE_CHAR0     113             /* + kind: fast, repair, spotter */
+#define FAST_TIME       (15 * FPS)      /* shells fly twice as fast */
+#define SPOT_TIME       (10 * FPS)      /* wider hit radius, icebergs shown */
+#define CRATE_FIRST     (10 * FPS)      /* first crate of a round */
+#define CRATE_DELAY     (15 * FPS)      /* next crate after 15-20 s */
+#define CRATE_JITTER    (5 * FPS)
+#define PU_COL0         14              /* HUD columns of the active power-ups */
+#define PU_COL1         23
 #define SPLASH_TIME 20                  /* frames the impact stays visible */
 
 typedef struct {
@@ -128,6 +140,8 @@ typedef struct {
     unsigned char flash;
     unsigned char color;
     unsigned char cool_color;   /* hull colour while the magazine reloads */
+    unsigned int fast_t;        /* frames of fast shells left */
+    unsigned int spot_t;        /* frames of spotter plane left */
     int aim_x, aim_y;           /* crosshair, pixels */
     unsigned char fire_held;
     unsigned char stick_used;   /* joystick moved during this press: no shot */
@@ -335,6 +349,20 @@ static void draw_slider(unsigned char p)
     }
 }
 
+static const unsigned char crate_colors[PU_KINDS] = { COLOR_ORANGE, COLOR_LIGHTGREEN, COLOR_CYAN };
+
+/* Active power-ups in the HUD: fast shells, spotter plane. */
+static void draw_powerups(unsigned char p)
+{
+    ship_t *s = &ships[p];
+    unsigned int o = p ? PU_COL1 : PU_COL0;
+
+    SCREEN[o] = s->fast_t ? CRATE_CHAR0 + PU_FAST : ' ';
+    COLORRAM[o] = crate_colors[PU_FAST];
+    SCREEN[o + 1] = s->spot_t ? CRATE_CHAR0 + PU_SPOT : ' ';
+    COLORRAM[o + 1] = crate_colors[PU_SPOT];
+}
+
 static void draw_hud(void)
 {
     unsigned char i;
@@ -355,6 +383,8 @@ static void draw_hud(void)
     put_number(20, wins[1], COLOR_LIGHTRED);
     draw_ammo(0);
     draw_ammo(1);
+    draw_powerups(0);
+    draw_powerups(1);
     memset(SCREEN + SLIDER_ROW * 40, ' ', 40);
     draw_slider(0);
     draw_slider(1);
@@ -500,8 +530,9 @@ static unsigned char song;
 #define SFX_SPLASH  0
 #define SFX_SHOT    1
 #define SFX_ICE     2                   /* beep beep beep */
-#define SFX_HIT     3
-#define SFX_SINK    4
+#define SFX_PICKUP  3
+#define SFX_HIT     4
+#define SFX_SINK    5
 
 /* ------------------------------------------------------------------ */
 /* Input                                                              */
@@ -737,6 +768,9 @@ static void fire(unsigned char p)
             ay = iabs(s->aim_y - sy);
             /* flight time grows with distance (approximate length) */
             b->flight = 25 + (ax > ay ? ax + ay / 2 : ay + ax / 2) / 5;
+            if (s->fast_t) {
+                b->flight /= 2;         /* fast shells power-up */
+            }
             b->t = 0;
             b->x = sx << 4;
             b->y = sy << 4;
@@ -797,6 +831,8 @@ static void move_ship(unsigned char p)
         }
     }
     if (s->flash) --s->flash;
+    if (s->fast_t && --s->fast_t == 0) draw_powerups(p);
+    if (s->spot_t && --s->spot_t == 0) draw_powerups(p);
 
     if (joy & JOY_FIRE) {
         /* fire held: the joystick steers the ship */
@@ -976,15 +1012,16 @@ static void show_iceberg(iceberg_t *ice, unsigned char show)
    makes a ship that touches one (centre, bow or stern) pay a heart. */
 static void update_icebergs(void)
 {
-    unsigned char i, k, nearby, cx, cy;
+    unsigned char i, k, nearby, cx, cy, spotting;
     int px, py;
     iceberg_t *ice;
     ship_t *s;
 
+    spotting = ships[0].spot_t || ships[1].spot_t;  /* a spotter plane shows them all */
     for (i = 0; i < ice_count; ++i) {
         ice = &icebergs[i];
         if (!ice->alive) continue;
-        nearby = 0;
+        nearby = spotting;
         for (k = 0; k < 2; ++k) {
             s = &ships[k];
             if (!s->hp) continue;
@@ -1010,12 +1047,100 @@ static void update_icebergs(void)
     }
 }
 
+/* ------------------------------------------------------------------ */
+/* Power-up crates                                                    */
+
+static unsigned char crate_on, crate_col, crate_row, crate_kind;
+static unsigned int crate_timer;
+
+static unsigned char ship_within(ship_t *s, unsigned char col, unsigned char row, unsigned char dist)
+{
+    unsigned char cx = (unsigned char)((s->x >> 4) >> 3);
+    unsigned char cy = (unsigned char)((s->y >> 4) >> 3);
+
+    return (unsigned char)(cx - col + dist) <= 2 * dist
+        && (unsigned char)(cy - row + dist) <= 2 * dist;
+}
+
+/* Tries a few random spots on open sea, away from ships and icebergs. */
+static void place_crate(void)
+{
+    unsigned char tries, col, row, i, ok;
+    unsigned int o;
+
+    for (tries = 0; tries < 20; ++tries) {
+        col = 3 + rand() % 34;
+        row = 3 + rand() % 19;
+        if (!open_sea(col, row)) continue;
+        ok = !ship_within(&ships[0], col, row, 5) && !ship_within(&ships[1], col, row, 5);
+        for (i = 0; ok && i < ice_count; ++i) {
+            if (icebergs[i].alive && iceberg_near(&icebergs[i], col, row, 2)) ok = 0;
+        }
+        if (!ok) continue;
+        crate_col = col;
+        crate_row = row;
+        crate_kind = rand() % PU_KINDS;
+        o = row * 40 + col;
+        SCREEN[o] = CRATE_CHAR0 + crate_kind;
+        COLORRAM[o] = crate_colors[crate_kind];
+        crate_on = 1;
+        return;
+    }
+}
+
+static void take_crate(unsigned char p)
+{
+    ship_t *s = &ships[p];
+    unsigned int o = crate_row * 40 + crate_col;
+    unsigned char i;
+
+    switch (crate_kind) {
+    case PU_FAST:   s->fast_t = FAST_TIME; break;
+    case PU_SPOT:   s->spot_t = SPOT_TIME; break;
+    case PU_REPAIR: if (s->hp < MAX_HP) ++s->hp; draw_hud(); break;
+    }
+    /* clear the crate; if a landing mark covers it, fix what the mark restores */
+    if (SCREEN[o] == MARK_CHAR) {
+        for (i = 0; i < 2 * SHELLS_PER; ++i) {
+            if (shells[i].state == SHELL_FLYING && shells[i].cell == o) {
+                shells[i].under_ch = sea_char(crate_col, crate_row);
+                shells[i].under_col = COLOR_LIGHTBLUE;
+            }
+        }
+    } else {
+        SCREEN[o] = sea_char(crate_col, crate_row);
+        COLORRAM[o] = COLOR_LIGHTBLUE;
+    }
+    crate_on = 0;
+    crate_timer = CRATE_DELAY + rand() % CRATE_JITTER;
+    sfx_play(SFX_PICKUP);
+    draw_powerups(p);
+}
+
+static void update_crate(void)
+{
+    unsigned char k;
+
+    if (!crate_on) {
+        if (crate_timer) --crate_timer;
+        else place_crate();             /* retries next frame if no spot found */
+        return;
+    }
+    for (k = 0; k < 2; ++k) {
+        if (ships[k].hp && ship_within(&ships[k], crate_col, crate_row, 1)) {
+            take_crate(k);
+            return;
+        }
+    }
+}
+
 /* The shell comes down at its target: hits any ship there, else splashes. */
 static void land(shell_t *b)
 {
-    unsigned char k;
+    unsigned char k, range;
     ship_t *t;
 
+    range = ships[(b - shells) / SHELLS_PER].spot_t ? HIT_RANGE_SPOT : HIT_RANGE;
     unmark_target(b);
     b->state = SHELL_SPLASH;
     b->t = SPLASH_TIME;
@@ -1023,7 +1148,7 @@ static void land(shell_t *b)
     b->color = solid_at(b->tx, b->ty) ? COLOR_BROWN : COLOR_LIGHTBLUE;
     for (k = 0; k < 2; ++k) {
         t = &ships[k];
-        if (t->hp && iabs(b->tx - (t->x >> 4)) < HIT_RANGE && iabs(b->ty - (t->y >> 4)) < HIT_RANGE) {
+        if (t->hp && iabs(b->tx - (t->x >> 4)) < range && iabs(b->ty - (t->y >> 4)) < range) {
             b->block = BLK_BOOM;
             b->color = COLOR_ORANGE;
             hit(k);
@@ -1101,6 +1226,8 @@ static void new_round(void)
 
     draw_map();
     place_icebergs();
+    crate_on = 0;
+    crate_timer = CRATE_FIRST;
     draw_hud();
     update_sprites();
 }
@@ -1121,6 +1248,7 @@ static unsigned char play_round(void)
         move_ship(1);
         ships_collide();
         update_icebergs();
+        update_crate();
         move_shells();
     }
 

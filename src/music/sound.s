@@ -24,14 +24,14 @@ VOICEBIT = 2                    ; voice 2 in music_mute
 IRQLINE  = 0                    ; raster line of the interrupt
 
 .segment "RODATA"
-; effect:       splash shot   ice    hit    sink
-sfx_wave:  .byte $81,   $81,   $41,   $81,   $81
-sfx_ad:    .byte $09,   $08,   $00,   $0a,   $0c
-sfx_sr:    .byte $00,   $00,   $f0,   $00,   $00
-sfx_freq:  .byte $18,   $30,   $40,   $12,   $0c   ; start frequency (high byte)
-sfx_delta: .byte $ff,   $fe,   $00,   $ff,   $00   ; frequency change per frame (signed)
-sfx_len:   .byte 16,    12,    47,    26,    80    ; frames
-sfx_gate:  .byte 0,     0,     8,     0,     0     ; nonzero: gate on only while
+; effect:       splash shot   ice    pickup hit    sink
+sfx_wave:  .byte $81,   $81,   $41,   $41,   $81,   $81
+sfx_ad:    .byte $09,   $08,   $00,   $00,   $0a,   $0c
+sfx_sr:    .byte $00,   $00,   $f0,   $a0,   $00,   $00
+sfx_freq:  .byte $18,   $30,   $40,   $18,   $12,   $0c   ; start frequency (high byte)
+sfx_delta: .byte $ff,   $fe,   $00,   $04,   $ff,   $00   ; frequency change per frame (signed)
+sfx_len:   .byte 16,    12,    47,    16,    26,    80    ; frames
+sfx_gate:  .byte 0,     0,     8,     0,     0,     0     ; nonzero: gate on only while
                                                    ; (frames left & mask) != 0,
                                                    ; e.g. 8 = 3 beeps in 47 frames
 SFX_COUNT = * - sfx_len

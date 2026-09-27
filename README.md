@@ -49,6 +49,10 @@ A real-time naval duel for two players, seen from above ([src/c/battleships.c](s
 - With the rudder already straight, up raises the engine setting (the speed you order), and down lowers it or goes astern. A slider on the bottom row shows it: the white ◆ is the setting, and the lit part of the track is the actual speed, which follows the setting with a delay.
 - Ships are heavy, as in Beach-Head. They take about 1.3 seconds to reach full speed and then keep going, since nothing but the engines slows them down. A ship always moves the way its bow points.
 - Tapping fire (without moving) fires a shell toward the crosshair. It flies in an arc, looking bigger the higher it is, and lands after a delay that grows with distance, so aim where the enemy will be. A ring in your colour marks the landing spot until the shell comes down. It damages any ship within range of the landing point, including your own.
+- Power-up crates float up one at a time, 15–20 seconds apart, on open sea. Sail next to one to take it; active effects show as crate icons on the top row.
+  - **»** Fast shells (orange): your shells fly twice as fast for 15 s.
+  - **+** Repair kit (light green): +1 heart, up to 3.
+  - **○** Spotter plane (cyan): for 10 s your shells hit within 18 pixels instead of 10, and all icebergs are shown.
 - Each ship fires 3 shots, then has to reload for 2.5 seconds. The top row shows it next to your hearts: shell icons (grey once used), or a bar that shrinks one block every half second while reloading. While reloading, the ship also changes colour (yellow → light green, red → violet).
 
 The keyboard mapping lives in [vice/keys.cfg](vice/keys.cfg).
